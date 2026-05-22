@@ -39,10 +39,15 @@ class LedgerEntry extends Model
     // Immutable: heç vaxt update etmə
     public $timestamps = true;
 
+    // `created_at` / `updated_at` qəsdən fillable-dadır: LedgerService::writeEntry
+    // hash-də işlədilən `$now`-u explicit DB-yə yazmalıdır. Əks halda Eloquent
+    // `updateTimestamps()` çağırışı saniyə sərhədini keçə bilər və hash uyğunsuzluğu
+    // (verifyChain "broken" görür) yaranar. Audit C-1.
     protected $fillable = [
         'uid', 'user_id', 'merchant_id', 'branch_id', 'cashier_id',
         'type', 'amount', 'balance_after', 'ref', 'reverses_id', 'meta',
         'prev_hash', 'entry_hash',
+        'created_at', 'updated_at',
     ];
 
     protected function casts(): array

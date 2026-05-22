@@ -9,6 +9,7 @@ use App\Core\Models\Merchant;
 use App\Core\Models\Transaction;
 use App\Core\Models\User;
 use App\Core\Services\LedgerService;
+use App\Core\Support\LoyaltyConfigurationException;
 use App\Core\ValueObjects\BonusValue;
 use App\Http\Controllers\Controller;
 use App\Modules\Api\Services\RotatingQrService;
@@ -16,6 +17,7 @@ use App\Modules\Pos\Http\Requests\PreviewSaleRequest;
 use App\Modules\Pos\Http\Requests\CompleteSaleRequest;
 use App\Modules\Pos\Http\Requests\ReverseSaleRequest;
 use App\Modules\Pos\Services\EarnCalculator;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -182,10 +184,12 @@ class SaleController extends Controller
      * Bu davranış real POS retry/timeout ssenarilərinə uyğundur — şəbəkə uğursuzluğundan
      * sonra kassa eyni receipt üçün sorğunu təkrarlaya bilər, duplicate earn baş vermir.
      *
-     * Race condition: lookup və insert eyni DB transaction içindədir.
-     * (merchant_id, receipt_no) unique constraint (migration-da) ikiqat müdafiə kimi
-     * çıxış edir — paralel iki request gəlsə də ikincisi QueryException-a düşür və
-     * idempotent retry zamanı tutula bilər.
+     * Race condition (audit P-3): `lockForUpdate->first()` boş sətir üçün bütün
+     * DB-lərdə qlobal gap-lock qarantiyası vermir (Postgres, MySQL READ COMMITTED).
+     * Paralel iki request idempotency lookup-dan keçib həm bir insert cəhd edə bilər.
+     * Bu halda `unique(merchant_id, receipt_no)` constraint ikincini rədd edir →
+     * `UniqueConstraintViolationException`. Bunu tutub mövcud transaction-u qaytaraq:
+     * istifadəçi yenə idempotent response alır, 500 yox.
      */
     public function complete(CompleteSaleRequest $request): JsonResponse
     {
@@ -195,83 +199,115 @@ class SaleController extends Controller
         $receiptNo  = $request->string('receipt_no')->toString();
         $branchId   = $request->integer('branch_id') ?: null;
 
-        return DB::transaction(function () use (
-            $merchant, $customer, $cashierId, $receiptNo, $branchId, $request
-        ) {
-            // 1) Idempotency lookup — eyni receipt artıq yazılıbsa, yeni iş görmə.
-            //    lockForUpdate ilə paralel iki sorğunun yarış vəziyyətini blokla.
-            $existing = Transaction::where('merchant_id', $merchant->id)
-                ->where('receipt_no', $receiptNo)
-                ->lockForUpdate()
-                ->first();
+        try {
+            return DB::transaction(function () use (
+                $merchant, $customer, $cashierId, $receiptNo, $branchId, $request
+            ) {
+                // 1) Idempotency lookup — eyni receipt artıq yazılıbsa, yeni iş görmə.
+                //    lockForUpdate ilə paralel iki sorğunun yarış vəziyyətini blokla.
+                $existing = Transaction::where('merchant_id', $merchant->id)
+                    ->where('receipt_no', $receiptNo)
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($existing) {
-                return response()->json([
-                    'transaction_id' => $existing->id,
-                    'receipt_no'     => $existing->receipt_no,
-                    'status'         => $existing->status,
-                    'idempotent'     => true,
+                if ($existing) {
+                    return $this->idempotentCompleteResponse($existing);
+                }
+
+                // 2) Yeni satış — bucket balansını oxu, eyni formula ilə hesabla.
+                $bucket = Bucket::where('user_id', $customer->id)
+                    ->where('merchant_id', $merchant->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $computed = $this->computeAmounts(
+                    saleAmountCents: $request->integer('sale_amount_cents'),
+                    useBonus:        $request->boolean('use_bonus'),
+                    redeemCentsRaw:  $request->integer('redeem_cents'),
+                    merchant:        $merchant,
+                    bucketBalance:   (int) ($bucket->balance ?? 0),
+                );
+
+                $tx = Transaction::create([
+                    'receipt_no'      => $receiptNo,
+                    'merchant_id'     => $merchant->id,
+                    'branch_id'       => $branchId,
+                    'cashier_id'      => $cashierId,
+                    'user_id'         => $customer->id,
+                    'sale_amount'     => $computed['sale']->amount,
+                    'earned_amount'   => $computed['earn']->amount,
+                    'redeemed_amount' => $computed['redeem']->amount,
+                    'status'          => 'completed',
+                    'occurred_at'     => now(),
                 ]);
-            }
 
-            // 2) Yeni satış — bucket balansını oxu, eyni formula ilə hesabla.
-            $bucket = Bucket::where('user_id', $customer->id)
-                ->where('merchant_id', $merchant->id)
-                ->lockForUpdate()
+                if (! $computed['redeem']->isZero()) {
+                    $this->ledger->redeem(
+                        customer:  $customer,
+                        merchant:  $merchant,
+                        amount:    $computed['redeem'],
+                        receiptNo: $tx->receipt_no,
+                        branchId:  $tx->branch_id,
+                        cashierId: $cashierId,
+                        meta:      ['transaction_id' => $tx->id],
+                    );
+                }
+
+                if (! $computed['earn']->isZero()) {
+                    $this->ledger->earn(
+                        customer:  $customer,
+                        merchant:  $merchant,
+                        amount:    $computed['earn'],
+                        receiptNo: $tx->receipt_no,
+                        branchId:  $tx->branch_id,
+                        cashierId: $cashierId,
+                        meta:      ['transaction_id' => $tx->id],
+                    );
+                }
+
+                return response()->json([
+                    'transaction_id' => $tx->id,
+                    'receipt_no'     => $tx->receipt_no,
+                    'status'         => 'completed',
+                    'idempotent'     => false,
+                ]);
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            // Paralel request yarışda qalib gəlib eyni (merchant_id, receipt_no) ilə
+            // artıq insert edib. Idempotent retry kimi davran: mövcud tx-i qaytar.
+            $winner = Transaction::where('merchant_id', $merchant->id)
+                ->where('receipt_no', $receiptNo)
                 ->first();
 
-            $computed = $this->computeAmounts(
-                saleAmountCents: $request->integer('sale_amount_cents'),
-                useBonus:        $request->boolean('use_bonus'),
-                redeemCentsRaw:  $request->integer('redeem_cents'),
-                merchant:        $merchant,
-                bucketBalance:   (int) ($bucket->balance ?? 0),
-            );
-
-            $tx = Transaction::create([
-                'receipt_no'      => $receiptNo,
-                'merchant_id'     => $merchant->id,
-                'branch_id'       => $branchId,
-                'cashier_id'      => $cashierId,
-                'user_id'         => $customer->id,
-                'sale_amount'     => $computed['sale']->amount,
-                'earned_amount'   => $computed['earn']->amount,
-                'redeemed_amount' => $computed['redeem']->amount,
-                'status'          => 'completed',
-                'occurred_at'     => now(),
-            ]);
-
-            if (! $computed['redeem']->isZero()) {
-                $this->ledger->redeem(
-                    customer:  $customer,
-                    merchant:  $merchant,
-                    amount:    $computed['redeem'],
-                    receiptNo: $tx->receipt_no,
-                    branchId:  $tx->branch_id,
-                    cashierId: $cashierId,
-                    meta:      ['transaction_id' => $tx->id],
-                );
+            if ($winner === null) {
+                // Bu praktiki olaraq mümkün deyil — unique violation digər tx-in
+                // mövcud olduğunu sübut edir. Lakin DB anomaliyasından bizi qoru.
+                throw $e;
             }
 
-            if (! $computed['earn']->isZero()) {
-                $this->ledger->earn(
-                    customer:  $customer,
-                    merchant:  $merchant,
-                    amount:    $computed['earn'],
-                    receiptNo: $tx->receipt_no,
-                    branchId:  $tx->branch_id,
-                    cashierId: $cashierId,
-                    meta:      ['transaction_id' => $tx->id],
-                );
-            }
-
-            return response()->json([
-                'transaction_id' => $tx->id,
-                'receipt_no'     => $tx->receipt_no,
-                'status'         => 'completed',
-                'idempotent'     => false,
+            Log::info('pos.sale.complete.idempotent_race', [
+                'merchant_id' => $merchant->id,
+                'cashier_id'  => $cashierId,
+                'tx_id'       => $winner->id,
+                'receipt_no'  => $winner->receipt_no,
             ]);
-        });
+
+            return $this->idempotentCompleteResponse($winner);
+        }
+    }
+
+    /**
+     * `complete` endpoint-i üçün vahid idempotent cavab forması — həm pre-check
+     * lookup-ı, həm də unique-violation race fallback-ı eyni JSON strukturu qaytarsın.
+     */
+    private function idempotentCompleteResponse(Transaction $tx): JsonResponse
+    {
+        return response()->json([
+            'transaction_id' => $tx->id,
+            'receipt_no'     => $tx->receipt_no,
+            'status'         => $tx->status,
+            'idempotent'     => true,
+        ]);
     }
 
     /**
@@ -372,6 +408,12 @@ class SaleController extends Controller
      * preview və complete üçün TƏK hesablama yolu. Bu sayəsində preview-da göstərilən
      * earn/redeem cents complete-də eyni nəticəni verir.
      *
+     * Redemption biznes qaydaları (audit Cfg-1) — config/loyalty.php · redemption:
+     *  - `min_sale_cents`: bundan kiçik satışda bonus istifadəsi qadağandır.
+     *  - `max_percent_of_sale`: satışın yalnız bu faizi bonusla ödənə bilər.
+     *
+     * Final redeem cap:  min(bucket_balance, sale_amount, sale_amount × max% ÷ 100)
+     *
      * @return array{sale: BonusValue, earn: BonusValue, redeem: BonusValue}
      */
     private function computeAmounts(
@@ -385,14 +427,63 @@ class SaleController extends Controller
         $earn = $this->earn->calculate($merchant, $sale);
 
         if (! $useBonus) {
-            $redeem = BonusValue::zero();
-        } else {
-            // redeem heç vaxt bucket balansından və ya satış məbləğindən böyük ola bilməz.
-            $cap    = min($bucketBalance, $sale->amount);
-            $redeem = new BonusValue(max(0, min($redeemCentsRaw, $cap)));
+            return ['sale' => $sale, 'earn' => $earn, 'redeem' => BonusValue::zero()];
         }
 
+        $minSaleCents = $this->redemptionMinSaleCents();
+        if ($saleAmountCents < $minSaleCents) {
+            // Çox kiçik satışda bonus istifadəsi qadağandır → effektiv olaraq 0.
+            return ['sale' => $sale, 'earn' => $earn, 'redeem' => BonusValue::zero()];
+        }
+
+        // Üst hədd: satışın faiz limiti (intdiv ilə deterministik, yuxarı yuvarlanma yox).
+        $percentCap = intdiv($saleAmountCents * $this->redemptionMaxPercent(), 100);
+
+        // Hamısı arasında ən kiçiyi tətbiq olunur.
+        $cap    = min($bucketBalance, $sale->amount, $percentCap);
+        $redeem = new BonusValue(max(0, min($redeemCentsRaw, $cap)));
+
         return ['sale' => $sale, 'earn' => $earn, 'redeem' => $redeem];
+    }
+
+    /**
+     * config('loyalty.redemption.min_sale_cents') — fail-fast oxuma.
+     * Səssiz 0 default-a sürüşmə qadağandır (biznes qaydası boşa keçə bilməz).
+     */
+    private function redemptionMinSaleCents(): int
+    {
+        if (! config()->has('loyalty.redemption.min_sale_cents')) {
+            throw LoyaltyConfigurationException::missingKey('loyalty.redemption.min_sale_cents');
+        }
+
+        $value = (int) config('loyalty.redemption.min_sale_cents');
+        if ($value < 0) {
+            throw LoyaltyConfigurationException::negativeValue('loyalty.redemption.min_sale_cents', $value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * config('loyalty.redemption.max_percent_of_sale') — fail-fast, 0..100 aralığı.
+     */
+    private function redemptionMaxPercent(): int
+    {
+        if (! config()->has('loyalty.redemption.max_percent_of_sale')) {
+            throw LoyaltyConfigurationException::missingKey('loyalty.redemption.max_percent_of_sale');
+        }
+
+        $value = (int) config('loyalty.redemption.max_percent_of_sale');
+        if ($value < 0) {
+            throw LoyaltyConfigurationException::negativeValue('loyalty.redemption.max_percent_of_sale', $value);
+        }
+        if ($value > 100) {
+            throw new LoyaltyConfigurationException(
+                "Loyalty configuration key [loyalty.redemption.max_percent_of_sale] 0..100 aralığında olmalıdır, alınan: {$value}."
+            );
+        }
+
+        return $value;
     }
 
     /**

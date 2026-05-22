@@ -44,17 +44,23 @@ async function lookup() {
     }
 }
 
+// AZN (float, UI input) → qəpik (integer, API). Float xətalarından qaçmaq üçün
+// `Math.round` ilə dəqiq integer-ə çevrilir.
+const toCents = (azn) => Math.round(parseFloat(azn || 0) * 100);
+
 // Live preview
 const fetchPreview = async () => {
-    if (!saleAmount.value || saleAmount.value <= 0) {
+    const saleCents = toCents(saleAmount.value);
+    if (saleCents <= 0) {
         preview.value = null;
         return;
     }
     try {
         const { data } = await axios.post(route('pos.preview'), {
             customer_id: customer.value.id,
-            sale_amount: parseFloat(saleAmount.value),
+            sale_amount_cents: saleCents,
             use_bonus: useBonus.value,
+            redeem_cents: useBonus.value ? toCents(redeemAzn.value) : 0,
         });
         preview.value = data;
     } catch (e) {
@@ -74,12 +80,16 @@ const finalToPay = computed(() => {
 async function complete() {
     processing.value = true;
     try {
+        const redeemCents = useBonus.value
+            ? (toCents(redeemAzn.value) || preview.value?.redeem_amount || 0)
+            : 0;
+
         const { data } = await axios.post(route('pos.complete'), {
             customer_id: customer.value.id,
-            sale_amount: parseFloat(saleAmount.value),
+            sale_amount_cents: toCents(saleAmount.value),
             receipt_no: receiptNo.value,
             use_bonus: useBonus.value,
-            redeem_azn: useBonus.value ? parseFloat(redeemAzn.value || (preview.value?.redeem_amount / 100) || 0) : 0,
+            redeem_cents: redeemCents,
         });
         completedTxId.value = data.transaction_id;
         step.value = 'success';

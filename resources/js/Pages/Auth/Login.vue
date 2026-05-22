@@ -114,16 +114,6 @@ const submit = () => form.post(route('login'), {
                         <span v-else>Yoxlanılır...</span>
                     </button>
                 </form>
-
-                <div class="mt-10 pt-6 border-t border-border">
-                    <div class="font-mono text-[10px] uppercase tracking-widest text-muted mb-3">Test istifadəçilər</div>
-                    <div class="space-y-1 font-mono text-[11px] text-text-2">
-                        <div>admin@paylo.az  ·  password</div>
-                        <div>owner@bravo.az  ·  password</div>
-                        <div>cashier@bravo.az ·  password</div>
-                        <div>aysel@gmail.com ·  password</div>
-                    </div>
-                </div>
             </div>
         </section>
     </div>
