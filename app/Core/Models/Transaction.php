@@ -60,8 +60,33 @@ class Transaction extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /**
+     * Bu tranzaksiyanın yazıldığı ledger entry-ləri.
+     *
+     * Audit C-2: `receipt_no` global unique deyil — yalnız `(merchant_id, receipt_no)`
+     * cütü unikaldır. Filter olmadan iki fərqli merchant-ın eyni qəbz nömrəli
+     * tranzaksiyaları cross-leak edərdi. `merchant_id` filteri scope-u qoruyur.
+     *
+     * MƏHDUDIYYƏT: Laravel `HasMany` composite foreign key dəstəkləmir. Eager
+     * loading (`Transaction::with('ledgerEntries')`) ilə Laravel relation-ı
+     * fresh instance üzərində çağırır — `$this->merchant_id` null olur və
+     * scope səssizcə boş gəlir (səhv data göstərməkdən təhlükəsizdir, lakin
+     * developer-i çaşdırır). Bu cür səssiz uğursuzluqdan qaçmaq üçün eager
+     * çağırış halında açıq LogicException atırıq.
+     *
+     * Düzgün istifadə: `$tx->ledgerEntries()->get()` (lazy, explicit).
+     */
     public function ledgerEntries(): HasMany
     {
-        return $this->hasMany(LedgerEntry::class, 'ref', 'receipt_no');
+        if ($this->merchant_id === null) {
+            throw new \LogicException(
+                'Transaction::ledgerEntries eager loading dəstəkləmir — composite '
+                . 'foreign key (merchant_id, receipt_no). Lazy istifadə edin: '
+                . '$tx->ledgerEntries()->get()'
+            );
+        }
+
+        return $this->hasMany(LedgerEntry::class, 'ref', 'receipt_no')
+            ->where('ledger_entries.merchant_id', $this->merchant_id);
     }
 }
