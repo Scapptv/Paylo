@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        @apply bg-bg text-text font-sans antialiased min-h-screen;
+        background-image:
+            radial-gradient(circle at 15% 20%, rgba(200,255,61,0.06) 0%, transparent 40%),
+            radial-gradient(circle at 85% 80%, rgba(108,142,239,0.06) 0%, transparent 40%);
+    }
+
+    /* Grain noise overlay (eyni HTML mock-larındakı kimi) */
+    .grain::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.02;
+        z-index: 999;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: theme('colors.border'); border-radius: 0; }
+    *::-webkit-scrollbar-thumb:hover { background: theme('colors.border-2'); }
+}
+
+@layer components {
+    /* Standart düymə */
+    .btn {
+        @apply inline-flex items-center gap-2 px-4 py-2 font-mono text-xs uppercase tracking-wider
+               border border-border bg-surface text-text-2 transition cursor-pointer;
+    }
+    .btn:hover { @apply border-accent text-accent; }
+    .btn-primary { @apply bg-accent text-bg border-accent hover:bg-accent hover:text-bg hover:border-accent; }
+    .btn-primary:hover { filter: brightness(1.1); }
+
+    /* Pill / tag */
+    .pill {
+        @apply inline-flex items-center gap-1 px-2 py-1 font-mono text-[10px] uppercase tracking-wider
+               border border-border text-muted;
+    }
+    .pill-success { @apply border-success/40 text-success bg-success/10; }
+    .pill-danger  { @apply border-danger/40 text-danger bg-danger/10; }
+    .pill-warning { @apply border-warning/40 text-warning bg-warning/10; }
+    .pill-accent  { @apply border-accent/40 text-accent bg-accent/10; }
+
+    /* Surface card */
+    .card {
+        @apply border border-border bg-surface p-6 transition;
+    }
+    .card-hover:hover { @apply border-accent bg-surface-2; }
+
+    /* Section header */
+    .section-title {
+        @apply font-mono text-[10px] tracking-widest text-muted uppercase mb-3;
+    }
+
+    /* Input */
+    .input {
+        @apply w-full bg-surface border border-border px-4 py-2.5 font-mono text-sm
+               text-text placeholder:text-muted focus:outline-none focus:border-accent transition;
+    }
+
+    /* Logo brand dot */
+    .brand-dot {
+        @apply w-3 h-3 bg-accent rotate-45;
+        box-shadow: 0 0 16px theme('colors.accent');
+    }
+}

@@ -1,0 +1,75 @@
+{
+    "name": "paylo/loyalty",
+    "type": "project",
+    "description": "Paylo — monolit modular Laravel loyalty platform",
+    "keywords": ["laravel", "loyalty", "modular", "ddd", "paylo"],
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "inertiajs/inertia-laravel": "^1.0",
+        "laravel/framework": "^11.0",
+        "laravel/sanctum": "^4.3",
+        "laravel/tinker": "^2.9",
+        "tightenco/ziggy": "^2.0"
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "laravel/breeze": "^2.0",
+        "laravel/pint": "^1.13",
+        "laravel/sail": "^1.26",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.0",
+        "pestphp/pest": "^2.34",
+        "pestphp/pest-plugin-laravel": "^2.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "App\\Core\\": "app/Core/",
+            "App\\Modules\\Admin\\": "app/Modules/Admin/",
+            "App\\Modules\\Api\\": "app/Modules/Api/",
+            "App\\Modules\\Merchant\\": "app/Modules/Merchant/",
+            "App\\Modules\\Cashier\\": "app/Modules/Cashier/",
+            "App\\Modules\\Pos\\": "app/Modules/Pos/",
+            "App\\Modules\\User\\": "app/Modules/User/",
+            "App\\Modules\\Auth\\": "app/Modules/Auth/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
