@@ -2,15 +2,16 @@
 
 declare(strict_types=1);
 
-use App\Core\Enums\LedgerEntryType;
 use App\Core\Enums\UserRole;
-use App\Core\Models\LedgerEntry;
 use App\Core\Models\Merchant;
 use App\Core\Models\Transaction;
 use App\Core\Models\User;
 use App\Core\Services\LedgerService;
 use App\Core\ValueObjects\BonusValue;
+use App\Modules\Api\Services\RotatingQrService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
+use Mockery\MockInterface;
 
 uses(RefreshDatabase::class);
 
@@ -107,4 +108,128 @@ it('Transaction::ledgerEntries throws on eager load to prevent silent leak (C-2 
 
     expect(fn () => Transaction::with('ledgerEntries')->get())
         ->toThrow(\LogicException::class, 'eager loading');
+});
+
+/*
+|--------------------------------------------------------------------------
+| P-1 — POS lookup `is_active` filter
+|--------------------------------------------------------------------------
+*/
+
+it('POS lookup ignores inactive customer (P-1)', function () {
+    $merchant = Merchant::factory()->create(['status' => 'active', 'category' => 'grocery', 'tier' => 'standard']);
+    $cashier  = User::factory()->create([
+        'role'        => UserRole::Cashier,
+        'merchant_id' => $merchant->id,
+        'is_active'   => true,
+    ]);
+    $deactivated = User::factory()->create([
+        'role'        => UserRole::Customer,
+        'is_active'   => false,
+        'customer_qr' => 'qr_deactivated_xyz',
+    ]);
+
+    $response = $this->actingAs($cashier)
+        ->getJson('/pos/customer/' . $deactivated->customer_qr);
+
+    // Status uniformdur (enumeration qarşısı), lakin customer payload-da null
+    // olur — POS yenidən sale ekranını açmır.
+    $response->assertOk()
+        ->assertJson(['status' => 'not_found', 'customer' => null, 'bucket' => null]);
+});
+
+it('POS lookup still finds active customer (P-1 — regression)', function () {
+    $merchant = Merchant::factory()->create(['status' => 'active', 'category' => 'grocery', 'tier' => 'standard']);
+    $cashier  = User::factory()->create([
+        'role'        => UserRole::Cashier,
+        'merchant_id' => $merchant->id,
+        'is_active'   => true,
+    ]);
+    $active = User::factory()->create([
+        'role'        => UserRole::Customer,
+        'is_active'   => true,
+        'customer_qr' => 'qr_active_xyz',
+    ]);
+
+    $response = $this->actingAs($cashier)
+        ->getJson('/pos/customer/' . $active->customer_qr);
+
+    $response->assertOk()->assertJsonPath('status', 'ok')
+        ->assertJsonPath('customer.id', $active->id);
+});
+
+/*
+|--------------------------------------------------------------------------
+| P-2 — Static `customer.qr` response-dan çıxarılıb
+|--------------------------------------------------------------------------
+*/
+
+it('POS lookup response does not leak static customer_qr (P-2)', function () {
+    $merchant = Merchant::factory()->create(['status' => 'active', 'category' => 'grocery', 'tier' => 'standard']);
+    $cashier  = User::factory()->create([
+        'role'        => UserRole::Cashier,
+        'merchant_id' => $merchant->id,
+        'is_active'   => true,
+    ]);
+    $customer = User::factory()->create([
+        'role'        => UserRole::Customer,
+        'is_active'   => true,
+        'customer_qr' => 'qr_static_secret',
+    ]);
+
+    $response = $this->actingAs($cashier)
+        ->getJson('/pos/customer/' . $customer->customer_qr);
+
+    $response->assertOk()->assertJsonPath('customer.id', $customer->id);
+
+    // Response-da `customer.qr` field-i mövcud olmamalıdır.
+    $response->assertJsonMissingPath('customer.qr');
+
+    // Plain text olaraq da static QR cavabda görünməsin (defense-in-depth).
+    expect($response->getContent())->not->toContain('qr_static_secret');
+});
+
+/*
+|--------------------------------------------------------------------------
+| P-12 — `markUsed` failure non-fatal
+|--------------------------------------------------------------------------
+*/
+
+it('POS lookup succeeds even when RotatingQrService::markUsed throws (P-12)', function () {
+    $merchant = Merchant::factory()->create(['status' => 'active', 'category' => 'grocery', 'tier' => 'standard']);
+    $cashier  = User::factory()->create([
+        'role'        => UserRole::Cashier,
+        'merchant_id' => $merchant->id,
+        'is_active'   => true,
+    ]);
+    $customer = User::factory()->create([
+        'role'        => UserRole::Customer,
+        'is_active'   => true,
+        'customer_qr' => 'qr_p12_customer',
+    ]);
+
+    // RotatingQrService-i mock-la → `markUsed` istisna atır, `verify` valid token
+    // qaytarır. Lookup hələ də 200 + ok cavab verməlidir, exception sızmamalıdır.
+    $this->mock(RotatingQrService::class, function (MockInterface $mock) use ($customer) {
+        $mock->shouldReceive('verify')->andReturn([
+            'valid'   => true,
+            'user_qr' => $customer->customer_qr,
+            'reason'  => null,
+            'hmac'    => 'abc1234567890def',
+            'exp'     => time() + 60,
+        ]);
+        $mock->shouldReceive('markUsed')
+            ->once()
+            ->andThrow(new \RuntimeException('cache backend down'));
+    });
+
+    Log::shouldReceive('info')->andReturnNull();
+    Log::shouldReceive('warning')
+        ->withArgs(fn ($message) => str_contains($message, 'mark_used_failed'))
+        ->once();
+
+    $response = $this->actingAs($cashier)
+        ->getJson('/pos/customer/qr1.qr_p12_customer.9999999999.deadbeefdeadbeef');
+
+    $response->assertOk()->assertJsonPath('status', 'ok');
 });

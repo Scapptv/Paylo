@@ -95,8 +95,12 @@ class SaleController extends Controller
             ]);
         }
 
+        // Audit P-1: `is_active=false` (deaktivləşdirilmiş / anonimləşdirilmiş)
+        // istifadəçi rotating QR-i mövcud olsa belə POS-da görünməməlidir —
+        // əks halda silinmiş hesaba təsadüfən bonus yazılar.
         $customer = User::where('customer_qr', $resolved['user_qr'])
             ->where('role', 'customer')
+            ->where('is_active', true)
             ->first();
 
         if (! $customer) {
@@ -119,8 +123,23 @@ class SaleController extends Controller
 
         // Rotating token uğurla verify olundu → replay protection üçün markla.
         // Static QR (manual) modunda mark-used tətbiq olunmur, çünki həmin QR sabitdir.
+        //
+        // Audit P-12: `markUsed` cache layer-ə yazır. Cache exception (Redis offline,
+        // network glitch və s.) bütün POS lookup-u uğursuz etməməlidir — lookup özü
+        // artıq HMAC + expiry + replay yoxlamasından keçib. Mark-used uğursuzluğu
+        // worst-case 60s replay pəncərəsi açır, lakin satışı bloklamır. Səhvi log edib
+        // davam edirik (security trade-off availability lehinə).
         if ($resolved['mode'] === 'rotating' && $resolved['hmac'] !== null) {
-            $this->rotatingQr->markUsed($resolved['hmac']);
+            try {
+                $this->rotatingQr->markUsed($resolved['hmac']);
+            } catch (\Throwable $e) {
+                Log::warning('pos.customer.lookup.mark_used_failed', [
+                    'merchant_id' => $merchantId,
+                    'cashier_id'  => $cashierId,
+                    'qr_hash'     => $qrHash,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
         }
 
         $bucket = Bucket::firstOrNew(['user_id' => $customer->id, 'merchant_id' => $merchantId]);
@@ -135,12 +154,14 @@ class SaleController extends Controller
             'at'          => now()->toIso8601String(),
         ]);
 
+        // Audit P-2: Static `customer_qr` cashier-ə qaytarılmır — rotating QR
+        // sisteminin mövcudluğunun səbəbi budur. Cashier sale flow üçün yalnız
+        // `id`-yə ehtiyac duyur (subsequent preview / complete request-lər).
         return response()->json([
             'status'   => 'ok',
             'customer' => [
                 'id'   => $customer->id,
                 'name' => $customer->name,
-                'qr'   => $customer->customer_qr,
             ],
             'bucket' => [
                 'balance'        => (int) ($bucket->balance ?? 0),

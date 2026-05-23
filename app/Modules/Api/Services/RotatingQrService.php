@@ -23,7 +23,10 @@ use Illuminate\Support\Facades\Cache;
  *   3. exp_unix > now()
  *   4. Replay protection — cache key `qr_used:{hmac16}` mövcuddursa rədd
  */
-final class RotatingQrService
+// NOTE: bu sinif `final` deyil — test-lərdə mock üçün açıq qalır (RotatingQrService
+// həm Pos modulundakı SaleController-də, həm də Api modulundakı QrController-də
+// istifadə olunur, hər ikisinin behavior testləri partial mock tələb edir).
+class RotatingQrService
 {
     public const VERSION = 'qr1';
 

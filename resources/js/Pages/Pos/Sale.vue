@@ -163,7 +163,7 @@ function reset() {
                         </div>
                         <div class="flex-1">
                             <div class="font-serif text-xl">{{ customer.name }}</div>
-                            <div class="font-mono text-[11px] text-accent-blue">{{ customer.qr }}</div>
+                            <div class="font-mono text-[11px] text-muted">id #{{ customer.id }}</div>
                         </div>
                         <div class="text-right">
                             <div class="section-title mb-1">Bu merchant-da bucket</div>

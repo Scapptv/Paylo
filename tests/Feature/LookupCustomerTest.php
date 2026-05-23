@@ -53,19 +53,20 @@ it('returns ok status with customer + bucket payload for a known QR', function (
 
     $response = $this->actingAs($this->cashier)->getJson('/pos/customer/q_known_abc');
 
+    // Audit P-2: static `customer_qr` cashier-ə qaytarılmır. Yalnız `id` və `name`.
     $response->assertOk()
         ->assertJson([
             'status' => 'ok',
             'customer' => [
                 'id' => $customer->id,
-                'qr' => 'q_known_abc',
             ],
             'bucket' => [
                 'balance'        => 0,
                 'earned_total'   => 0,
                 'redeemed_total' => 0,
             ],
-        ]);
+        ])
+        ->assertJsonMissingPath('customer.qr');
 });
 
 it('writes an audit log entry without leaking the raw QR (sha256 hash only)', function () {
@@ -117,10 +118,11 @@ it('resolves a valid rotating QR token to the customer (canonical mobile flow)',
 
     $response = $this->actingAs($this->cashier)->getJson('/pos/customer/' . $token);
 
+    // Audit P-2: static `customer_qr` rotating axında belə cashier-ə qaytarılmır.
     $response->assertOk()->assertJson([
         'status'   => 'ok',
-        'customer' => ['id' => $customer->id, 'qr' => 'q_rotating_user'],
-    ]);
+        'customer' => ['id' => $customer->id],
+    ])->assertJsonMissingPath('customer.qr');
 });
 
 it('rejects an expired rotating QR token with not_found (uniform shape)', function () {
