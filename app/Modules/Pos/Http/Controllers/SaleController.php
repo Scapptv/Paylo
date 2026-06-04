@@ -4,19 +4,20 @@ declare(strict_types=1);
 
 namespace App\Modules\Pos\Http\Controllers;
 
+use App\Core\Enums\TransactionStatus;
+use App\Core\Enums\UserRole;
 use App\Core\Models\Bucket;
 use App\Core\Models\Merchant;
 use App\Core\Models\Transaction;
 use App\Core\Models\User;
 use App\Core\Services\LedgerService;
-use App\Core\Support\LoyaltyConfigurationException;
-use App\Core\ValueObjects\BonusValue;
+use App\Core\Services\ReverseFlowService;
 use App\Http\Controllers\Controller;
 use App\Modules\Api\Services\RotatingQrService;
 use App\Modules\Pos\Http\Requests\PreviewSaleRequest;
 use App\Modules\Pos\Http\Requests\CompleteSaleRequest;
 use App\Modules\Pos\Http\Requests\ReverseSaleRequest;
-use App\Modules\Pos\Services\EarnCalculator;
+use App\Modules\Pos\Services\SaleAmountComputer;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,8 +36,9 @@ class SaleController extends Controller
 {
     public function __construct(
         private readonly LedgerService $ledger,
-        private readonly EarnCalculator $earn,
         private readonly RotatingQrService $rotatingQr,
+        private readonly ReverseFlowService $reverseFlow,
+        private readonly SaleAmountComputer $amounts,
     ) {
     }
 
@@ -98,8 +100,9 @@ class SaleController extends Controller
         // Audit P-1: `is_active=false` (deaktivləşdirilmiş / anonimləşdirilmiş)
         // istifadəçi rotating QR-i mövcud olsa belə POS-da görünməməlidir —
         // əks halda silinmiş hesaba təsadüfən bonus yazılar.
+        // Audit P-5: magic string `'customer'` əvəzinə UserRole enum dəyəri.
         $customer = User::where('customer_qr', $resolved['user_qr'])
-            ->where('role', 'customer')
+            ->where('role', UserRole::Customer)
             ->where('is_active', true)
             ->first();
 
@@ -133,12 +136,28 @@ class SaleController extends Controller
             try {
                 $this->rotatingQr->markUsed($resolved['hmac']);
             } catch (\Throwable $e) {
+                // Sprint 6.3: log + Sentry-də ayrıca warning event. P-12 audit
+                // qərarına görə bu səhv POS axınını sındırmır, lakin görünmür
+                // olmamalıdır — replay window açıqdır.
                 Log::warning('pos.customer.lookup.mark_used_failed', [
                     'merchant_id' => $merchantId,
                     'cashier_id'  => $cashierId,
                     'qr_hash'     => $qrHash,
                     'error'       => $e->getMessage(),
                 ]);
+
+                if (app()->bound('sentry')) {
+                    \Sentry\configureScope(function (\Sentry\State\Scope $scope) use ($merchantId, $cashierId, $qrHash): void {
+                        $scope->setLevel(\Sentry\Severity::warning());
+                        $scope->setContext('pos_lookup', [
+                            'merchant_id' => $merchantId,
+                            'cashier_id'  => $cashierId,
+                            'qr_hash'     => $qrHash,
+                            'event'       => 'mark_used_failed',
+                        ]);
+                    });
+                    \Sentry\captureException($e);
+                }
             }
         }
 
@@ -178,7 +197,7 @@ class SaleController extends Controller
         $customer   = User::findOrFail($request->integer('customer_id'));
         $bucket     = Bucket::firstOrNew(['user_id' => $customer->id, 'merchant_id' => $merchant->id]);
 
-        $computed = $this->computeAmounts(
+        $computed = $this->amounts->compute(
             saleAmountCents: $request->integer('sale_amount_cents'),
             useBonus:        $request->boolean('use_bonus'),
             redeemCentsRaw:  $request->integer('redeem_cents'),
@@ -241,7 +260,7 @@ class SaleController extends Controller
                     ->lockForUpdate()
                     ->first();
 
-                $computed = $this->computeAmounts(
+                $computed = $this->amounts->compute(
                     saleAmountCents: $request->integer('sale_amount_cents'),
                     useBonus:        $request->boolean('use_bonus'),
                     redeemCentsRaw:  $request->integer('redeem_cents'),
@@ -258,7 +277,15 @@ class SaleController extends Controller
                     'sale_amount'     => $computed['sale']->amount,
                     'earned_amount'   => $computed['earn']->amount,
                     'redeemed_amount' => $computed['redeem']->amount,
-                    'status'          => 'completed',
+                    'status'          => TransactionStatus::Completed,
+                    // Audit P-6 (trade-off, by design): `occurred_at` POS-un göndərdiyi
+                    // vaxt deyil, server vaxtıdır. Üstünlük: offline POS-un təsadüfi
+                    // və ya manipulyasiya edilmiş tarixini etibarsız kimi tutmuruq —
+                    // server vaxtı yeganə həqiqət mənbəyidir, audit/settlement
+                    // hesabat dəqiq olur. Mənfi: real "satış vaxtı" ilə yazılı vaxt
+                    // arasında şəbəkə uzantısı qədər fərq ola bilər. Real POS offline
+                    // mode tələb olduqda gələcəkdə `client_occurred_at` field-i
+                    // əlavə etmək olar (server vaxtı yenə də audit üçün istinad).
                     'occurred_at'     => now(),
                 ]);
 
@@ -289,7 +316,7 @@ class SaleController extends Controller
                 return response()->json([
                     'transaction_id' => $tx->id,
                     'receipt_no'     => $tx->receipt_no,
-                    'status'         => 'completed',
+                    'status'         => TransactionStatus::Completed->value,
                     'idempotent'     => false,
                 ]);
             });
@@ -326,7 +353,7 @@ class SaleController extends Controller
         return response()->json([
             'transaction_id' => $tx->id,
             'receipt_no'     => $tx->receipt_no,
-            'status'         => $tx->status,
+            'status'         => $tx->status->value,
             'idempotent'     => true,
         ]);
     }
@@ -356,155 +383,14 @@ class SaleController extends Controller
             ->where('receipt_no', $receiptNo)
             ->first();
 
-        if (! $tx) {
-            return response()->json([
-                'status'  => 'not_found',
-                'message' => 'Bu qəbz tapılmadı.',
-            ], 404);
-        }
+        // Sprint 8 D-1: reverse orkestrasiyası ReverseFlowService-də toplandı —
+        // Admin endpoint-i ilə eyni shape və exception handling.
+        $result = $this->reverseFlow->execute($tx, $cashierId, $returnReceiptNo, $reason, 'pos.sale.reverse');
 
-        // Idempotent qisa-çıxış — yeni iş görməmək üçün servisə girmədən.
-        if ($tx->status === 'reversed') {
-            return response()->json([
-                'transaction_id'   => $tx->id,
-                'receipt_no'       => $tx->receipt_no,
-                'status'           => 'reversed',
-                'already_reversed' => true,
-                'reverse_entries'  => [],
-            ]);
-        }
-
-        try {
-            $entries = $this->ledger->reverseTransaction($tx, $cashierId, $returnReceiptNo, $reason);
-        } catch (\RuntimeException $e) {
-            // İki səbəb mümkündür:
-            //  1) Race: paralel sorğu artıq reverse etdi → idempotent 200 qaytaraq.
-            //  2) Müştəri bonus-u xərcləyib → 422.
-            $tx->refresh();
-            if ($tx->status === 'reversed') {
-                return response()->json([
-                    'transaction_id'   => $tx->id,
-                    'receipt_no'       => $tx->receipt_no,
-                    'status'           => 'reversed',
-                    'already_reversed' => true,
-                    'reverse_entries'  => [],
-                ]);
-            }
-
-            Log::warning('pos.sale.reverse.failed', [
-                'merchant_id' => $merchantId,
-                'cashier_id'  => $cashierId,
-                'tx_id'       => $tx->id,
-                'receipt_no'  => $tx->receipt_no,
-                'reason'      => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'status'  => 'unprocessable',
-                'message' => $e->getMessage(),
-            ], 422);
-        }
-
-        Log::info('pos.sale.reverse.ok', [
-            'merchant_id'   => $merchantId,
-            'cashier_id'    => $cashierId,
-            'tx_id'         => $tx->id,
-            'receipt_no'    => $tx->receipt_no,
-            'entries_count' => count($entries),
-        ]);
-
-        return response()->json([
-            'transaction_id'   => $tx->id,
-            'receipt_no'       => $tx->receipt_no,
-            'status'           => 'reversed',
-            'already_reversed' => false,
-            'reverse_entries'  => array_map(
-                fn ($e) => ['uid' => $e->uid, 'type' => $e->type->value, 'amount' => $e->amount],
-                $entries,
-            ),
-        ]);
-    }
-
-    /**
-     * preview və complete üçün TƏK hesablama yolu. Bu sayəsində preview-da göstərilən
-     * earn/redeem cents complete-də eyni nəticəni verir.
-     *
-     * Redemption biznes qaydaları (audit Cfg-1) — config/loyalty.php · redemption:
-     *  - `min_sale_cents`: bundan kiçik satışda bonus istifadəsi qadağandır.
-     *  - `max_percent_of_sale`: satışın yalnız bu faizi bonusla ödənə bilər.
-     *
-     * Final redeem cap:  min(bucket_balance, sale_amount, sale_amount × max% ÷ 100)
-     *
-     * @return array{sale: BonusValue, earn: BonusValue, redeem: BonusValue}
-     */
-    private function computeAmounts(
-        int $saleAmountCents,
-        bool $useBonus,
-        int $redeemCentsRaw,
-        Merchant $merchant,
-        int $bucketBalance,
-    ): array {
-        $sale = new BonusValue($saleAmountCents);
-        $earn = $this->earn->calculate($merchant, $sale);
-
-        if (! $useBonus) {
-            return ['sale' => $sale, 'earn' => $earn, 'redeem' => BonusValue::zero()];
-        }
-
-        $minSaleCents = $this->redemptionMinSaleCents();
-        if ($saleAmountCents < $minSaleCents) {
-            // Çox kiçik satışda bonus istifadəsi qadağandır → effektiv olaraq 0.
-            return ['sale' => $sale, 'earn' => $earn, 'redeem' => BonusValue::zero()];
-        }
-
-        // Üst hədd: satışın faiz limiti (intdiv ilə deterministik, yuxarı yuvarlanma yox).
-        $percentCap = intdiv($saleAmountCents * $this->redemptionMaxPercent(), 100);
-
-        // Hamısı arasında ən kiçiyi tətbiq olunur.
-        $cap    = min($bucketBalance, $sale->amount, $percentCap);
-        $redeem = new BonusValue(max(0, min($redeemCentsRaw, $cap)));
-
-        return ['sale' => $sale, 'earn' => $earn, 'redeem' => $redeem];
-    }
-
-    /**
-     * config('loyalty.redemption.min_sale_cents') — fail-fast oxuma.
-     * Səssiz 0 default-a sürüşmə qadağandır (biznes qaydası boşa keçə bilməz).
-     */
-    private function redemptionMinSaleCents(): int
-    {
-        if (! config()->has('loyalty.redemption.min_sale_cents')) {
-            throw LoyaltyConfigurationException::missingKey('loyalty.redemption.min_sale_cents');
-        }
-
-        $value = (int) config('loyalty.redemption.min_sale_cents');
-        if ($value < 0) {
-            throw LoyaltyConfigurationException::negativeValue('loyalty.redemption.min_sale_cents', $value);
-        }
-
-        return $value;
-    }
-
-    /**
-     * config('loyalty.redemption.max_percent_of_sale') — fail-fast, 0..100 aralığı.
-     */
-    private function redemptionMaxPercent(): int
-    {
-        if (! config()->has('loyalty.redemption.max_percent_of_sale')) {
-            throw LoyaltyConfigurationException::missingKey('loyalty.redemption.max_percent_of_sale');
-        }
-
-        $value = (int) config('loyalty.redemption.max_percent_of_sale');
-        if ($value < 0) {
-            throw LoyaltyConfigurationException::negativeValue('loyalty.redemption.max_percent_of_sale', $value);
-        }
-        if ($value > 100) {
-            throw new LoyaltyConfigurationException(
-                "Loyalty configuration key [loyalty.redemption.max_percent_of_sale] 0..100 aralığında olmalıdır, alınan: {$value}."
-            );
-        }
-
-        return $value;
+        return response()->json(
+            collect($result)->except('http_status')->all(),
+            $result['http_status'],
+        );
     }
 
     /**
