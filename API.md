@@ -1,11 +1,31 @@
 ﻿# Paylo REST API (v1)
 
-Flutter mobile client üçün customer-facing REST API. Web Inertia tərəfindən tam izolyasiyalı: bütün route-lar `app/Modules/Api/` daxilindədir, ayrı middleware stack istifadə edir.
+İki istifadə hədəfi, tam izolyasiyalı route group-ları:
+
+1. **Customer mobile API** (Flutter müştəri tətbiqi) — `/api/v1/auth/*`, `/api/v1/me/*`, `/api/v1/wallet`, `/api/v1/history`, `/api/v1/qr`, `/api/v1/push/*`. Token ability `customer`.
+2. **POS Integration API** (M2M — POSNET və digər kassir sistemləri) — `/api/v1/pos/*`. Token ability `pos:write`. Detal: [Bölmə 10](#10-pos-integration-api-m2m).
+
+Web Inertia tərəfindən tam izolyasiyalı: bütün route-lar `app/Modules/Api/` daxilindədir, ayrı middleware stack istifadə edir.
 
 **Base URL:** `http://localhost:8000/api/v1` (dev) / `https://api.paylo.az/v1` (prod)
-**Auth:** Laravel Sanctum bearer token, ability `customer`
+**Auth:** Laravel Sanctum bearer token; ability customer surface üçün `customer`, POS surface üçün `pos:write`.
 **Format:** JSON / UTF-8 / ISO-8601 zaman damğaları (+04:00 Asia/Baku)
 **Para vahidi:** Bütün məbləğlər **qəpik (integer)** — `2481` = `24.81 AZN`. Currency həmişə `"AZN"`.
+
+---
+
+## 0. JSON shape qaydası (Sprint 8 J-1)
+
+**API və Web Inertia ayrıca naming convention saxlayır** — bu qəsdən dizayn qərarıdır:
+
+| Surface | Convention | Səbəb |
+|---|---|---|
+| **API (REST, `/api/v1/*`)** | `snake_case` (`total_balance`, `recent_entries`, `customer_qr`) | REST API ekosistem standartı; mobile (Flutter) və ya 3rd-party SDK-lar PHP backend ilə naming uyğunluğu gözləyir. |
+| **Web Inertia (`/admin`, `/merchant`, `/cashier`, `/user`)** | `camelCase` (`totalBalance`, `recentEntries`, `customerQr`) | JavaScript ekosistem norması; Vue komponentləri prop-larında JS standart. |
+
+**Frontend conversion qadağandır.** Vue komponentinə API call gedirsə (məs mobile app olmayan rare halda Inertia səhifəsindən fetch), nəticəni öz conversion utility-də (`useFormat.js`-də və ya ayrı `apiClient.js`-də) snake→camel-ə çevir. Backend hər iki surface üçün ayrı response qurur — duplikat deyil, fərqli **interface contract**-dır.
+
+**Tək istisna:** `Pinia store` olarsa (real-time updates feature-i), state-i camelCase saxla; API client snake→camel conversion edir.
 
 ---
 
@@ -43,6 +63,18 @@ Flutter mobile client üçün customer-facing REST API. Web Inertia tərəfində
 
 Token ability: yalnız `customer`. Cashier/admin guard-larından ayrıdır.
 
+#### Token rotation və `device_name` davranışı (audit Api-13)
+
+Hər uğurlu `login` (və `register`) yeni Sanctum token verir və **eyni `device_name` ilə əvvəlki token-ləri DB-dən silir**. Praktiki nəticələr mobile app üçün:
+
+- **Bir cihaz = bir aktiv token.** "iPhone 15 Pro" device-i ilə ikinci login etsən, birinci token dərhal invalid olur (revoke edilir). 30 günlük TTL də sıfırlanır.
+- **Köhnə token client-də cached qala bilər.** Server tərəfdə silinib, lakin app yaddaşda saxlayıb. Belə token-lə hər hansı endpoint çağırışı **401 Unauthorized** qaytarır. App `401` görəndə saxlanılmış token-i təmizləyib istifadəçini yenidən login-ə yönləndirməlidir.
+- **Fərqli `device_name`-lər müstəqildir.** "iPhone 15 Pro" və "iPad" eyni hesab üçün iki ayrı aktiv token saxlaya bilər. Hər biri öz cihaz adı ilə ləğv olur.
+- **`logout`** yalnız cari istifadə olunan token-i silir (digər cihazlar toxunulmaz).
+- **`logout-all`** istifadəçinin BÜTÜN token-lərini silir — şifrə oğurluğu/cihaz itməsi ssenarisi üçün.
+
+Token TTL: `config('sanctum.expiration')` (default 43 200 dəq ≈ 30 gün). TTL bitdikdən sonra Sanctum middleware-i 401 qaytarır — eyni 401-recovery axını tətbiq olunur.
+
 ### `POST /auth/register` — public, throttle 5/min
 
 ```json
@@ -57,7 +89,7 @@ Token ability: yalnız `customer`. Cashier/admin guard-larından ayrıdır.
 }
 ```
 
-Cavab `201` — `login` ilə eyni format. Email verification linki avtomatik göndərilir (`Registered` event).
+Cavab `202 Accepted` — `login` ilə eyni format. Token rotation eyni qaydaya tabedir (yuxarıdakı bölmə). Email verification MVP-də mövcud deyil (audit Api-6 — silindi).
 
 **curl nümunəsi**
 ```bash
@@ -252,6 +284,18 @@ Accept: application/json
 
 429 cavabında `Retry-After: <saniyə>` header-i.
 
+### Proaktiv rate-limit header-ləri (Sprint 8 T-1)
+
+Hər `/api/v1/*` cavabında aşağıdakı header-lər qoyulur — mobile client backoff strategiyası üçün:
+
+| Header | Təsvir |
+|---|---|
+| `X-RateLimit-Limit` | Cari pəncərə üçün icazə verilən maksimum cəhd sayı (default 60). |
+| `X-RateLimit-Remaining` | Pəncərənin qalan sorğu sayı. 0-a düşəndə növbəti sorğu 429 qaytaracaq. |
+| `X-RateLimit-Reset` | Pəncərə sıfırlanana qədər qalan saniyə (yalnız aktiv pəncərədə). |
+
+Mobile client `Remaining < 5` halında polling intervalını artırmalıdır.
+
 ### CORS
 
 `config/cors.php` `paths: ['api/*', 'sanctum/csrf-cookie']`, origins env-driven (`CORS_ALLOWED_ORIGINS`, vergüllə ayrılır).
@@ -358,3 +402,519 @@ Login + wallet + me + qr + history + logout — hamısı 200.
 - FCM/APNS dispatch worker (PushToken qeydləri əsasında)
 - Pest feature testləri `tests/Feature/Api/V1/`
 - Dedicated `audit` log channel `config/logging.php`-də (hazırda default channel-a fallback)
+
+---
+
+## 10. POS Integration API (M2M)
+
+POSNET (Python/FastAPI) və ya digər kassir sistemləri ilə inteqrasiya üçün
+machine-to-machine endpoint qrupu. Customer mobile API-dən və web Inertia
+kassir panelindən tam izolyasiyalı.
+
+**Auth:** Sanctum bearer token, ability `pos:write`.
+**Token sahibi:** `pos_terminal` rolunda `User`. `merchant_id` token sahibindən
+gəlir — payload-da göndərilməsi qəbul edilmir (silent override yox, qəti scope).
+**Throttle:** 120 sorğu/dəq/token.
+**Idempotency:** iki qat — (a) `Idempotency-Key` header (cache replay, 24 saat),
+(b) domain-level `(merchant_id, receipt_no)` unique constraint.
+
+### 10.1 Token operations
+
+Üç komanda — issuance, listing, revocation. Plain-text token **yalnız bir dəfə**
+issuance zamanı göstərilir. Sahibi onu təhlükəsiz yerdə saxlamalıdır (POSNET
+tərəfində Vault / .env).
+
+#### Issue
+
+```bash
+php artisan pos:issue-token --merchant=m_412 --name=bravo-pos-01
+# default: --expires-days=90, ability=pos:write
+
+# Reverse səlahiyyəti də vermək (audit P-4 ekvivalenti — operator istəyəndə):
+php artisan pos:issue-token --merchant=m_412 --name=bravo-mgr --include-reverse
+
+# Vaxtı uzun saxlamaq (max 3650 gün):
+php artisan pos:issue-token --merchant=m_412 --name=bravo-pos-01 --expires-days=365
+```
+
+- `--merchant` məcburi, mağaza kodu (məs. `m_412`).
+- `--name` məcburi, terminal və ya inteqrasiya server adı. Eyni adla təkrar
+  verilməsi köhnə token-i siləcək (rotation).
+- `--expires-days` default 90 — bank M2M token norm.
+- `--include-reverse` opsional. Default token YALNIZ sale əməliyyatları üçündür;
+  reverse `pos:reverse` ability-li ayrı token tələb edir.
+
+Hər merchant üçün bir "POS Integration" user (`pos@<code>.api`) avtomatik
+yaranır; ona bir neçə adlandırılmış token bağlana bilər.
+
+#### List
+
+```bash
+# Bütün merchant-lar
+php artisan pos:list-tokens
+
+# Konkret merchant
+php artisan pos:list-tokens --merchant=m_412
+
+# Yalnız vaxtı keçmişlər (cleanup üçün)
+php artisan pos:list-tokens --expired
+
+# Son N günü istifadə olunmayanlar
+php artisan pos:list-tokens --unused-days=30
+```
+
+Plain-text token YOX, yalnız audit metadata: id, ad, abilities, son istifadə,
+expires_at, status. Sızma riski yoxdur.
+
+#### Revoke
+
+```bash
+# ID ilə (dəqiq)
+php artisan pos:revoke-token --id=42 --reason="device lost"
+
+# Merchant + ad ilə (rahat)
+php artisan pos:revoke-token --merchant=m_412 --name=bravo-pos-01 --reason="rotation"
+
+# Avtomatlaşma üçün təsdiq sorğusunu atla
+php artisan pos:revoke-token --id=42 --force
+```
+
+Revoke dərhal effekt edir: növbəti API çağırışı **401 Unauthorized** qaytarır.
+Audit event `api.pos.token.revoked` operator id, token id, səbəblə yazılır.
+
+### 10.2 `POST /api/v1/pos/customer/lookup`
+
+QR kodla müştərini tapır. Web `GET /pos/customer/{qr}`-dan fərqli olaraq POST
+istifadə edilir — QR URL log-larında görünməsin.
+
+**Request**
+```json
+{ "qr": "qr1.qr_clsztufrcaaa.1778998704.40801dc44cecc2cd" }
+```
+
+Həm rotating token (`qr1.{customer_qr}.{exp_unix}.{hmac16}`), həm static
+`qr_xxx` qəbul edilir. Rotating üçün HMAC + expiry + replay yoxlanılır.
+
+**Response 200 — uğurlu**
+```json
+{
+  "status": "ok",
+  "customer": { "id": 8, "name": "Aysel Hüseynova" },
+  "bucket":   { "balance": 0, "earned_total": 0, "redeemed_total": 0 }
+}
+```
+
+**Response 200 — tapılmadı** (enumeration qarşısı: status fərqli, struktur eyni)
+```json
+{ "status": "not_found", "customer": null, "bucket": null }
+```
+
+Customer `customer_qr`, `email`, `phone` cavabda **yoxdur** — POSNET sale axını
+üçün yalnız `id` lazımdır.
+
+### 10.3 `POST /api/v1/pos/sale/preview`
+
+Satışı yazmadan preview hesablaması — kassir ekranında "ödəniləcək məbləğ" və
+"qazanılacaq bonus" göstərmək üçün.
+
+**Request**
+```json
+{
+  "customer_id":       8,
+  "sale_amount_cents": 5000,
+  "use_bonus":         true,
+  "redeem_cents":      100,
+  "branch_id":         3
+}
+```
+
+**Response 200**
+```json
+{
+  "sale_amount":       5000,
+  "earn_amount":       125,
+  "redeem_amount":     100,
+  "final_to_pay":      4900,
+  "projected_balance": 25
+}
+```
+
+Hesablama qaydaları (eyni `SaleAmountComputer` xidməti web POS controller-i ilə
+paylaşılır — preview və complete iki səth arasında drift edə bilməz):
+
+- `earn` — `EarnCalculator` formulu (kateqoriya × tier basis points).
+- `redeem` — `min(bucket_balance, sale_amount, sale_amount × max_percent ÷ 100)`.
+- `use_bonus=false` olduqda `redeem_cents` payload-da olmamalıdır (P-8).
+
+### 10.4 `POST /api/v1/pos/sale`
+
+Satışı tamamla — atomik şəkildə `Transaction` + `LedgerEntry` (earn və redeem)
+yazılır.
+
+**Headers**
+```
+Authorization: Bearer <token>
+Idempotency-Key: <8–128 simvol, [A-Za-z0-9_-]>     (opsional, lakin tövsiyyə olunur)
+Content-Type: application/json
+Accept: application/json
+```
+
+**Request**
+```json
+{
+  "customer_id":       8,
+  "sale_amount_cents": 5000,
+  "receipt_no":        "POS01-2026-06-04-00042",
+  "branch_id":         3,
+  "use_bonus":         false
+}
+```
+
+`receipt_no` format: `^[A-Za-z0-9_\-]{1,64}$`. Boşluq, nöqtə, vergül qadağandır.
+
+**Response 200 — yeni satış**
+```json
+{
+  "transaction_id": 147,
+  "receipt_no":     "POS01-2026-06-04-00042",
+  "status":         "completed",
+  "idempotent":     false
+}
+```
+
+**Response 200 — idempotent retry**
+
+Eyni `(merchant + receipt_no)` ikinci dəfə gəldikdə:
+```json
+{ "transaction_id": 147, "receipt_no": "POS01-2026-06-04-00042", "status": "completed", "idempotent": true }
+```
+
+Header `Idempotency-Key` istifadə olunarsa, eyni açar + eyni body üçün cavab
+cache-dən qaytarılır və əlavə header `Idempotent-Replay: true` qoyulur.
+
+**Response 422 — Idempotency-Key body conflict**
+
+Eyni `Idempotency-Key` fərqli body ilə təkrar göndərilərsə:
+```json
+{
+  "message": "Idempotency-Key əvvəlki sorğudan fərqli body ilə təkrar istifadə edildi.",
+  "errors":  { "Idempotency-Key": ["Eyni açarın iki fərqli body ilə işlənməsinə icazə verilmir."] }
+}
+```
+
+**Response 422 — InsufficientFunds**
+
+`use_bonus=true` və balans `redeem_cents`-ə çatmırsa:
+```json
+{
+  "status":          "insufficient_funds",
+  "message":         "...",
+  "available_cents": 50,
+  "required_cents":  100
+}
+```
+
+### 10.5 `GET /api/v1/pos/transactions` — Reconciliation feed
+
+POSNET (və ya digər M2M client) öz lokal sale qeydlərini Paylo-nun yazılmış
+vəziyyəti ilə təsdiq etmək üçün bu feed-i çəkir. Tipik istifadə ssenarisi:
+
+> **Network failure self-heal**: POSNET `POST /pos/sale` çağırır, Paylo commit
+> edir, lakin HTTP cavab POSNET-ə çatmır (timeout, paket itkisi). Idempotency-Key
+> retry-i 24 saat ərzində uğurlu cavabı qaytarır, lakin TTL bitsə POSNET artıq
+> əmin ola bilməz ki, satış Paylo-ya keçib. Periodic reconciliation feed bu boşluğu
+> bağlayır: "son uğurlu sync-dan bəri hansı tx-lər mövcuddur?" sualına dəqiq cavab.
+
+**Query parametrləri**
+
+| Param | Type | Qeyd |
+|---|---|---|
+| `cursor` | string | Əvvəlki cavabdakı `next_cursor` |
+| `since` | datetime | ISO-8601 / `YYYY-MM-DD` — `occurred_at >= since` |
+| `until` | datetime | ISO-8601 / `YYYY-MM-DD` — `occurred_at <= until`, `since`-dən sonra olmalıdır |
+| `status` | string | `completed` \| `reversed` \| `refunded` |
+| `limit` | int | 1–200, default 50 |
+
+**Response 200**
+
+```json
+{
+  "data": [
+    {
+      "transaction_id":   148,
+      "receipt_no":       "POS01-002",
+      "branch_id":        null,
+      "customer_id":      8,
+      "cashier_id":       16,
+      "sale_amount":      10000,
+      "earned_amount":    250,
+      "redeemed_amount":  50,
+      "status":           "completed",
+      "occurred_at":      "2026-06-04T02:59:50+04:00",
+      "created_at":       "2026-06-04T02:59:50+04:00"
+    }
+  ],
+  "next_cursor": "eyJpZCI6MTQ4LCJfcG9pbnRzVG9OZXh0SXRlbXMiOnRydWV9",
+  "has_more":    true
+}
+```
+
+**Sıralama:** `occurred_at DESC, id DESC`. Yeni insert-lər cari pagination-ı
+sındırmır (cursor `id`-yə bağlıdır).
+
+**Təhlükəsizlik və qaydalar:**
+
+- Merchant scope avtomatik — token sahibinin merchant-ından kənar tx-lər heç vaxt
+  görünməz. Cross-merchant `since` ötürmək cəhdi heç vaxt başqa merchant-ın
+  verisini açmır.
+- Müştəri PII (email/phone/customer_qr) cavabda **yoxdur** — POSNET reconciliation
+  fəaliyyəti üçün yalnız metadata lazımdır.
+- Audit event: `api.pos.transactions.feed` (request parametrləri + qaytarılan count).
+
+**curl nümunəsi:**
+
+```bash
+# Son 24 saatın tx-lərini çək
+SINCE=$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%S+04:00')
+curl -G "http://localhost:8000/api/v1/pos/transactions" \
+  -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' \
+  --data-urlencode "since=$SINCE" \
+  --data-urlencode "limit=200"
+
+# Növbəti səhifə
+curl -G "http://localhost:8000/api/v1/pos/transactions" \
+  -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' \
+  --data-urlencode "cursor=<next_cursor-dən>"
+```
+
+**POSNET reconciliation pseudo-kod:**
+
+```python
+last_seen = state.get_last_reconciled_at()  # ISO-8601
+cursor = None
+while True:
+    r = client.get('/api/v1/pos/transactions', params={
+        'since': last_seen,
+        'limit': 200,
+        'cursor': cursor,
+    })
+    for tx in r['data']:
+        local = local_db.find_by_receipt(tx['receipt_no'])
+        if local is None:
+            log.warning('paylo has tx we don't: %s', tx)  # POSNET state drift
+        elif local.status != tx['status']:
+            log.warning('status divergence: %s', tx['receipt_no'])
+    if not r['has_more']:
+        break
+    cursor = r['next_cursor']
+state.set_last_reconciled_at(now())
+```
+
+### 10.7 `POST /api/v1/pos/sale/{receipt_no}/reverse`
+
+Satışı geri qaytar. Atomik şəkildə earn ledger entry-si rollback olunur və
+(varsa) redeem-i bərpa edir. Müştəri bonus-u artıq xərcləyibsə (refund underflow
+olar) — 422 + insan-oxunaqlı mesaj.
+
+**Request**
+```json
+{ "return_receipt_no": "RET-2026-06-04-00007", "reason": "customer return" }
+```
+
+**Response 200 — uğurlu reverse**
+```json
+{
+  "transaction_id":   147,
+  "receipt_no":       "POS01-2026-06-04-00042",
+  "status":           "reversed",
+  "already_reversed": false,
+  "reverse_entries": [
+    { "uid": "le_01KT7VFQR4HS4K84H8VKJ5YY2E", "type": "reversal", "amount": 125 }
+  ]
+}
+```
+
+**Response 200 — idempotent (artıq reversed)**
+```json
+{ "transaction_id": 147, "receipt_no": "...", "status": "reversed", "already_reversed": true, "reverse_entries": [] }
+```
+
+**Response 404** — qəbz başqa merchant-a aiddir və ya yoxdur. Cavab strukturu
+hər iki halda eynidir (enumeration qarşısı):
+```json
+{ "status": "not_found", "message": "Bu qəbz tapılmadı." }
+```
+
+### 10.8 Cross-cutting
+
+**Throttle:** 120/dəq/token. Customer endpoint-lərindən ayrı bucket-də.
+Header-lər (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`)
+[bölmə 6](#throttling) ilə eyni qaydada qoyulur.
+
+**Merchant scope override yoxdur.** Token-in sahibi olan user-in `merchant_id`-si
+yeganə həqiqət mənbəyidir. Request body-də `merchant_id` göndərmək olar, lakin
+təsir etməz. Branch_id və receipt_no axtarışları yalnız token-in merchant-ı
+daxilində aparılır.
+
+**Audit log eventləri** (AuditLogger vasitəsilə):
+
+| Event | Tetikleyici |
+|---|---|
+| `api.pos.token.issued` | `php artisan pos:issue-token` çağırışı |
+| `api.pos.customer.lookup` | Hər lookup (status=ok/not_found/error) |
+| `api.pos.customer.lookup.mark_used_failed` | Rotating QR cache mark-used uğursuzluğu |
+| `api.pos.sale.complete` | Hər complete (idempotent retry daxil) |
+| `api.pos.sale.complete.idempotent_race` | Paralel sorğu yarışı |
+| `api.pos.sale.reverse` | Hər reverse (already_reversed daxil) |
+| `api.pos.transactions.feed` | Reconciliation feed çağırışı |
+| `api.pos.token.revoked` | `php artisan pos:revoke-token` çağırışı (operator + token + reason) |
+
+**curl nümunəsi (tam satış axını):**
+
+```bash
+TOKEN="5|pY1npE6IQ5pKHzEREbkBHclCsqJCr4xpv8o2Ilo2973453bc"
+H_BASE="-H 'Authorization: Bearer $TOKEN' -H 'Accept: application/json' -H 'Content-Type: application/json'"
+
+# 1. Lookup
+curl -X POST http://localhost:8000/api/v1/pos/customer/lookup \
+  $H_BASE -d '{"qr":"qr_clsztufrcaaa"}'
+
+# 2. Preview (komplikasiyasız 50 AZN satış)
+curl -X POST http://localhost:8000/api/v1/pos/sale/preview \
+  $H_BASE -d '{"customer_id":8,"sale_amount_cents":5000,"use_bonus":false}'
+
+# 3. Sale (idempotency-key ilə)
+curl -X POST http://localhost:8000/api/v1/pos/sale \
+  $H_BASE -H 'Idempotency-Key: 01HX7K3R4M5N6P7Q8R9S' \
+  -d '{"customer_id":8,"sale_amount_cents":5000,"receipt_no":"POS01-001","use_bonus":false}'
+
+# 4. Reverse
+curl -X POST http://localhost:8000/api/v1/pos/sale/POS01-001/reverse \
+  $H_BASE -d '{"return_receipt_no":"RET-001","reason":"customer changed mind"}'
+
+# 5. Reconciliation feed (son 24 saat)
+curl -G "http://localhost:8000/api/v1/pos/transactions" $H_BASE \
+  --data-urlencode "since=2026-06-03T00:00:00+04:00" --data-urlencode "limit=200"
+```
+
+### 10.9 Outbound webhooks (V2 — Paylo → POSNET)
+
+POSNET-in initiate etmədiyi hadisələri (admin reverse, bucket expire) POSNET-ə
+xəbər vermək üçün Paylo HTTP webhook göndərir. Hər webhook HMAC-imzalanır
+(POS API ilə eyni sxem).
+
+#### Endpoint qeydiyyatı
+
+```bash
+php artisan pos:register-webhook \
+  --merchant=m_412 \
+  --name=posnet-prod \
+  --url=https://posnet.example/loyalty-events \
+  --events=admin_reverse,bucket_expire
+```
+
+HMAC secret avtomatik 32-byte hex generasiya olunur, **bir dəfə** çıxışda
+göstərilir. Receiver tərəfdə Vault-da saxlayın
+(`vault://secret/posnet/loyalty/<code>/webhook_secret`).
+
+| Komanda | Funksiya |
+|---|---|
+| `pos:register-webhook` | Yeni endpoint + HMAC secret |
+| `pos:list-webhooks` | Endpoint-lər + delivery statistikası |
+| `pos:revoke-webhook --id=N [--delete]` | Deaktiv et və ya tam sil |
+
+#### Event taxonomiyası
+
+| Event type | Trigger | Payload əsas sahələr |
+|---|---|---|
+| `admin_reverse` | Web POS / Admin UI reverse (POSNET-in xaricindən) | `transaction_id`, `receipt_no`, `customer_id`, `return_receipt_no`, `reversed_at`, `source` |
+| `bucket_expire` | Gecə `loyalty:expire-buckets` cron | `bucket_id`, `customer_id`, `amount_expired_cents`, `new_balance`, `threshold` |
+
+> **Vacib:** API POS-dan gələn reverse `admin_reverse` event-i fire **etmir**
+> — POSNET-in özü reverse-i initiate etdi və artıq tx-i bilir.
+
+#### Request format
+
+```http
+POST /loyalty-events HTTP/1.1
+Content-Type: application/json
+X-Paylo-Event: admin_reverse
+X-Paylo-Event-Id: 01HX7K3R4M5N6P7Q8R9SABCDEF      # ULID — receiver idempotency açarı
+X-Paylo-Timestamp: 1780565270
+X-Paylo-Signature: sha256=<64 hex>                 # HMAC-SHA256(ts + "." + body)
+User-Agent: Paylo-Webhook/1.0
+
+{
+  "event_id": "01HX7K3R4M5N6P7Q8R9SABCDEF",
+  "event_type": "admin_reverse",
+  "occurred_at": "2026-06-04T13:00:00+04:00",
+  "data": {
+    "transaction_id": 147,
+    "receipt_no": "R-001",
+    "merchant_id": 1,
+    "customer_id": 8,
+    "return_receipt_no": "RET-001",
+    "reason": "customer dispute",
+    "reversed_at": "2026-06-04T13:00:00+04:00",
+    "actor_id": 1,
+    "source": "admin.transaction.reverse"
+  }
+}
+```
+
+#### Receiver tərəfində məcburi yoxlamalar
+
+1. `X-Paylo-Timestamp` ±300 saniyə pəncərəsində olmalıdır (replay protection).
+2. `X-Paylo-Signature = sha256=hmac_sha256(ts + "." + raw_body, secret)` —
+   **constant-time** müqayisə (`hash_equals` / `hmac.compare_digest`).
+3. `X-Paylo-Event-Id` POSNET-də idempotency açarı kimi saxlanmalıdır. Eyni event
+   ID-li ikinci POST-u silent əmin uğurla qaytarın (200) — yeni iş görməyin.
+4. Body `event_type` sahəsi `X-Paylo-Event` header-i ilə uyğun olmalıdır
+   (mismatch = tampering signal, 400).
+
+POSNET tərəfdə Python istifadə edirsinizsə [`libs/loyalty_client/webhooks.py`](../adapter/libs/loyalty_client/webhooks.py)
+hazırdır — `WebhookVerifier` bütün yoxlamaları edir, qaytardığı tipli
+`AdminReverseEvent` / `BucketExpireEvent` Pydantic v2 modelləridir.
+
+#### Delivery semantics
+
+- **Sync delivery** (v1): tetikleyici event-dən sonra ledger transaction
+  commit olunduqdan sonra dərhal POST. Sale axınını sındırmır — webhook
+  uğursuzluğu DB-də `webhook_deliveries` cədvəlində `failed` status-la qalır.
+- **Manual retry** (v1.5 roadmap): `pos:webhook-redeliver --id=<delivery_id>`.
+- **Auto-retry queue** (v2 roadmap): Laravel queue + exponential backoff.
+
+#### Audit log eventləri
+
+| Event | Tetikleyici |
+|---|---|
+| `api.pos.webhook.registered` | `pos:register-webhook` |
+| `api.pos.webhook.deactivated` | `pos:revoke-webhook` (default soft) |
+| `api.pos.webhook.deleted` | `pos:revoke-webhook --delete` |
+| `api.pos.webhook.delivered` | Uğurlu 2xx cavab |
+| `api.pos.webhook.failed` | 4xx/5xx və ya network exception |
+
+### 10.10 İmplementasiya statusu (v1)
+
+İcra olundu (v1 + V2 hardening):
+- 5 inbound endpoint (lookup/preview/sale/reverse + transactions feed).
+- İki ability — `pos:write` (sale) + `pos:reverse` (refund). Reverse default-da
+  ayrı token tələb edir (audit P-4 ekvivalenti).
+- `Idempotency-Key` header middleware (response replay, body hash validation,
+  per-token namespace).
+- Domain-level `(merchant_id, receipt_no)` unique constraint.
+- Mağaza scope token sahibindən, payload override yox.
+- Cursor-paginated reconciliation feed (`occurred_at` ilə sıralı, PII-siz).
+- Token operations: `pos:issue-token`, `pos:list-tokens`, `pos:revoke-token`.
+- **HMAC body signing** (`X-Paylo-Signature` + `X-Paylo-Timestamp`) — opt-in via `--require-hmac`.
+- **Outbound webhooks** (Paylo → POSNET): `admin_reverse`, `bucket_expire`.
+- Webhook operations: `pos:register-webhook`, `pos:list-webhooks`, `pos:revoke-webhook`.
+- POSNET tərəfində Python client paketi (`adapter/libs/loyalty_client/`):
+  client, Vault loader, reconciliation, auto-rotation, HMAC signing, webhook verifier.
+- **316 Paylo Pest test + 73 Posnet Python test** (tam regression yaşıl).
+
+Roadmap (V2.5+):
+- Webhook auto-retry queue (currently sync + manual redeliver).
+- `pos:webhook-redeliver --id=N` komandası.
+- Webhook delivery dashboard (Inertia merchant panelində).
+- mTLS / cert pinning (defense-in-depth-in V3-ü).
