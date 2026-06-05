@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Core\Enums\UserRole;
+use App\Core\Models\AuditLog;
 use App\Core\Models\Bucket;
 use App\Core\Models\Merchant;
 use App\Core\Models\User;
@@ -67,12 +68,17 @@ it('Phase 2.4: scopes report to a single merchant', function () {
         ->assertInertia(fn (Assert $page) => $page->where('report.checked', 1));
 });
 
-it('Phase 2.4: run records reconcile and flashes success when healthy', function () {
+it('Phase 2.4: run records reconcile (with admin actor) and flashes success when healthy', function () {
     $this->from('/admin/settlements')
         ->actingAs($this->admin)
         ->post('/admin/settlements/run', ['for' => 'all'])
         ->assertRedirect()
         ->assertSessionHas('success');
+
+    // Browse-QA tapıntısı: manual run audit-də admin aktoru qeyd olunmalıdır (Sistem yox).
+    $log = AuditLog::query()->where('event', 'loyalty.settlement_reconcile.completed')->first();
+    expect($log)->not->toBeNull();
+    expect($log->actor_id)->toBe($this->admin->id);
 });
 
 it('Phase 2.4: run flashes error when a mismatch is found', function () {

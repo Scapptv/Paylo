@@ -51,7 +51,7 @@ class SettlementController extends Controller
         $merchantId = $request->filled('merchant_id') ? (int) $request->input('merchant_id') : null;
 
         $report = $reconciler->run($for, $merchantId);
-        $reconciler->logCompletion($report); // rəsmi icra — audit izi qalsın
+        $reconciler->logCompletion($report, $request); // rəsmi icra — audit izi (admin aktor) qalsın
 
         $count = count($report['mismatches']);
         $msg   = $count === 0

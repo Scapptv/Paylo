@@ -31,6 +31,8 @@ yarn-error.log
 # Local development scripts — port-less in-process smoke testlər
 /test_api.php
 /test_*.php
+# Lokal QA üçün PHP built-in server router-i (artisan serve sandbox-da işləmir)
+/dev-router.php
 
 # Laravel runtime caches və generated fayllar — VCS-də saxlanmamalıdır
 /bootstrap/cache/*.php

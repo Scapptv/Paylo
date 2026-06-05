@@ -8,6 +8,7 @@ use App\Core\Enums\LedgerEntryType;
 use App\Core\Models\Bucket;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
@@ -92,19 +93,22 @@ class SettlementReconciler
      * Tamamlanmış hesabat üçün audit log yaz — CLI non-dry-run və HTTP "İndi işlət"
      * eyni izi buraxsın. Read-only baxış (UI index) bunu çağırMAMALIDIR.
      *
+     * $request verilibsə (HTTP "İndi işlət"), audit aktor + IP-ni qeyd edir; CLI cron
+     * üçün null qalır (aktor = Sistem — düzgün).
+     *
      * @param array{scope: string, merchant_id: int|null, checked: int, mismatches: array<int, array<string, mixed>>} $report
      */
-    public function logCompletion(array $report): void
+    public function logCompletion(array $report, ?Request $request = null): void
     {
         $this->audit->log('loyalty.settlement_reconcile.completed', [
             'scope'           => $report['scope'],
             'merchant_id'     => $report['merchant_id'],
             'buckets_checked' => $report['checked'],
             'mismatches'      => count($report['mismatches']),
-        ]);
+        ], $request);
 
         foreach ($report['mismatches'] as $m) {
-            $this->audit->log('loyalty.settlement_reconcile.mismatch', $m);
+            $this->audit->log('loyalty.settlement_reconcile.mismatch', $m, $request);
         }
     }
 
