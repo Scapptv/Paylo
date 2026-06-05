@@ -41,7 +41,8 @@ defineProps({
                     <NavItem icon="⊞" badge="Tezliklə" disabled>Category Tiers</NavItem>
                     <NavItem icon="★" badge="Tezliklə" disabled>Campaigns</NavItem>
                     <NavItem :href="route('admin.merchants')" icon="◐">Merchants</NavItem>
-                    <NavItem icon="◌" badge="Tezliklə" disabled>Users</NavItem>
+                    <!-- Roadmap Phase 2.2: Users idarəetməsi aktivləşdirildi (siyahı + aktivlik toggle). -->
+                    <NavItem :href="route('admin.users')" icon="◌">Users</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Compliance</div>
                     <NavItem icon="⚠" badge="Tezliklə" disabled>Fraud Signals</NavItem>

@@ -50,8 +50,10 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 - [x] **2.1 Per-merchant Buckets** ✅ — `BucketController` + `Admin/Buckets.vue` (cədvəl: user×merchant
   balance/earned/redeemed/expired/last_activity, merchant+user filter, pagination, cəm bloklanmış balans).
   Read-only. Nav aktiv. **4 test PASS.** (Admin tam görünüş — maskalama lazım deyil.)
-- [ ] **2.2 Users** — admin user idarəetməsi: bütün user-lər (rol, is_active, merchant), filter,
-  deaktivləşdirmə (anonimləşdirmə deyil — sadə is_active toggle). Privilege qaydaları.
+- [x] **2.2 Users** ✅ — `UserController` + `Admin/Users.vue`: bütün user siyahısı (ad/email, rol,
+  merchant, aktivlik, qeydiyyat), filter (rol / aktivlik / ad-email axtarış), pagination,
+  `is_active` toggle (təsdiq modalı). Deaktiv = `EnsureUserIsActive` blok + token revoke (anonimləşdirmə
+  YOX). Privilege: admin özünü dəyişə bilməz. Nav aktiv. **9 test PASS.**
 - [ ] **2.3 Redemptions + Refunds** — `Ledger`-də type-filter (earn/redeem/refund/reversal/expire).
   ÖNCƏ yoxla: `Admin/Ledger.vue` artıq type filter dəstəkləyirmi? Dəstəkləyirsə — yalnız
   preset nav linkləri (`?type=redeem` / `?type=refund`); yoxdursa — filter əlavə et.
@@ -89,8 +91,8 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | 1.1 | Manual Adj. UI | ✅ DONE | 13 test PASS, build edildi, nav aktiv |
 | 1.2 | Transactions UI | ✅ DONE | 5 test PASS, reverse modal, nav aktiv |
 | 2.1 | Per-merchant Buckets | ✅ DONE | 4 test PASS, read-view, nav aktiv |
-| 2.2 | Users | ⏳ növbəti | |
-| 2.3 | Redemptions/Refunds | ⏳ | |
+| 2.2 | Users | ✅ DONE | 9 test PASS, toggle + filterlər, self-guard, nav aktiv |
+| 2.3 | Redemptions/Refunds | ⏳ növbəti | |
 | 2.4 | Settlements | ⏳ | |
 | 3.1 | Audit Logs | ⏳ | store lazım |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

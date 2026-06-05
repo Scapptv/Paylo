@@ -8,6 +8,7 @@ use App\Modules\Admin\Http\Controllers\DashboardController;
 use App\Modules\Admin\Http\Controllers\LedgerController;
 use App\Modules\Admin\Http\Controllers\MerchantController;
 use App\Modules\Admin\Http\Controllers\TransactionController;
+use App\Modules\Admin\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'role:admin'])
@@ -35,6 +36,11 @@ Route::middleware(['auth', 'role:admin'])
         Route::get('/transactions', [TransactionController::class, 'index'])->name('transactions');
         Route::post('/transactions/{transaction}/reverse', [TransactionController::class, 'reverse'])
             ->name('transactions.reverse');
+
+        // Roadmap Phase 2.2: istifadəçi idarəetməsi — siyahı + filter + aktivlik toggle.
+        Route::get('/users', [UserController::class, 'index'])->name('users');
+        Route::post('/users/{user}/toggle-active', [UserController::class, 'toggleActive'])
+            ->name('users.toggle-active');
 
         // Manual bonus düzəlişi (Audit 2026-06-04 CANON-4 + roadmap Phase 1.1) —
         // CREDIT-only, məcburi `reason` (audit). create() admin UI forması,
