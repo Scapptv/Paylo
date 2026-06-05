@@ -1,10 +1,21 @@
 <script setup>
+import { computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import BrandMark from '@/Components/BrandMark.vue';
 import NavItem from '@/Components/NavItem.vue';
 import UserMenu from '@/Components/UserMenu.vue';
 
 defineProps({
     breadcrumb: { type: String, default: 'Overview' },
+});
+
+// Roadmap Phase 2.3: Redemptions/Refunds nav-ları Ledger-i `?type=` ilə preset edir.
+// Highlight üçün cari URL-dən `type`-ı oxuyuruq — bu, Ziggy-nin route()-u
+// absolute və ya relative qaytarmasından asılı olmadan dəqiq işləyir.
+const page = usePage();
+const ledgerType = computed(() => {
+    const qi = page.url.indexOf('?');
+    return qi === -1 ? null : new URLSearchParams(page.url.slice(qi + 1)).get('type');
 });
 </script>
 
@@ -33,8 +44,9 @@ defineProps({
                     <NavItem :href="route('admin.transactions')" icon="⇆">Transactions</NavItem>
                     <!-- Roadmap Phase 2.1: Buckets read-view aktivləşdirildi. -->
                     <NavItem :href="route('admin.buckets')" icon="◫">Per-merchant Buckets</NavItem>
-                    <NavItem icon="⟳" badge="Tezliklə" disabled>Redemptions</NavItem>
-                    <NavItem icon="↺" badge="Tezliklə" disabled>Refunds</NavItem>
+                    <!-- Roadmap Phase 2.3: Ledger-in type-filter preset-ləri (yeni səhifə yox, mövcud filtr). -->
+                    <NavItem :href="route('admin.ledger', { type: 'redeem' })" :active="ledgerType === 'redeem'" icon="⟳">Redemptions</NavItem>
+                    <NavItem :href="route('admin.ledger', { type: 'refund' })" :active="ledgerType === 'refund'" icon="↺">Refunds</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Configuration</div>
                     <NavItem icon="⚙" badge="Tezliklə" disabled>Rules</NavItem>

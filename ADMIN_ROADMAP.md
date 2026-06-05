@@ -54,9 +54,10 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
   merchant, aktivlik, qeydiyyat), filter (rol / aktivlik / ad-email axtarış), pagination,
   `is_active` toggle (təsdiq modalı). Deaktiv = `EnsureUserIsActive` blok + token revoke (anonimləşdirmə
   YOX). Privilege: admin özünü dəyişə bilməz. Nav aktiv. **9 test PASS.**
-- [ ] **2.3 Redemptions + Refunds** — `Ledger`-də type-filter (earn/redeem/refund/reversal/expire).
-  ÖNCƏ yoxla: `Admin/Ledger.vue` artıq type filter dəstəkləyirmi? Dəstəkləyirsə — yalnız
-  preset nav linkləri (`?type=redeem` / `?type=refund`); yoxdursa — filter əlavə et.
+- [x] **2.3 Redemptions + Refunds** ✅ — yoxlanıldı: `LedgerController` + `Admin/Ledger.vue` artıq
+  tam `type` filtrinə malik idi. Ona görə yalnız **preset nav linkləri** əlavə edildi
+  (Redemptions→`?type=redeem`, Refunds→`?type=refund`) + URL-əsaslı `:active` highlight +
+  dinamik breadcrumb. Yeni səhifə/controller yox. **2 filter testi PASS** (filtri kilidləyir).
 - [ ] **2.4 Settlements** — `loyalty:settlement-reconcile` command-i üçün HTTP wrapper:
   read-only hesabat səhifəsi (son reconcile nəticəsi, mismatch siyahısı) + "indi işlət" düyməsi.
 
@@ -92,7 +93,7 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | 1.2 | Transactions UI | ✅ DONE | 5 test PASS, reverse modal, nav aktiv |
 | 2.1 | Per-merchant Buckets | ✅ DONE | 4 test PASS, read-view, nav aktiv |
 | 2.2 | Users | ✅ DONE | 9 test PASS, toggle + filterlər, self-guard, nav aktiv |
-| 2.3 | Redemptions/Refunds | ⏳ növbəti | |
-| 2.4 | Settlements | ⏳ | |
+| 2.3 | Redemptions/Refunds | ✅ DONE | 2 test PASS, preset nav linkləri (mövcud filtr) |
+| 2.4 | Settlements | ⏳ növbəti | |
 | 3.1 | Audit Logs | ⏳ | store lazım |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, router } from '@inertiajs/vue3';
-import { reactive, watch } from 'vue';
+import { reactive, watch, computed } from 'vue';
 import { debounce } from '@/Composables/useDebounce.js';
 import AdminLayout from '@/Layouts/AdminLayout.vue';
 import LedgerTypeBadge from '@/Components/LedgerTypeBadge.vue';
@@ -25,11 +25,19 @@ const applyFilters = debounce(() => {
 }, 250);
 
 watch(state, applyFilters, { deep: true });
+
+// Roadmap Phase 2.3: type preset-ində (Redemptions/Refunds) breadcrumb həmin tipin
+// adını göstərir; əks halda sadəcə "Ledger".
+const typeLabel = computed(() =>
+    props.filters.type
+        ? (props.types.find((t) => t.value === props.filters.type)?.label || 'Ledger')
+        : 'Ledger'
+);
 </script>
 
 <template>
     <Head title="Ledger" />
-    <AdminLayout breadcrumb="Ledger">
+    <AdminLayout :breadcrumb="typeLabel">
 
         <div class="flex items-center justify-between mb-8">
             <div>
