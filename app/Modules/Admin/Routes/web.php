@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Admin\Http\Controllers\AnalyticsController;
 use App\Modules\Admin\Http\Controllers\AuditLogController;
 use App\Modules\Admin\Http\Controllers\BonusAdjustmentController;
 use App\Modules\Admin\Http\Controllers\BucketController;
@@ -18,6 +19,9 @@ Route::middleware(['auth', 'role:admin'])
     ->name('admin.')
     ->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+        // Roadmap Phase 4.1: dərin analitika (ledger-dən kanonik metriklər + qrafiklər).
+        Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics');
 
         Route::get('/ledger',          [LedgerController::class, 'index'])->name('ledger');
         Route::get('/ledger/{entry}',  [LedgerController::class, 'show'])->name('ledger.show');

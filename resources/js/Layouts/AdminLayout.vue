@@ -36,7 +36,8 @@ const ledgerType = computed(() => {
                     -->
                     <div class="px-6 pb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Overview</div>
                     <NavItem :href="route('admin.dashboard')" icon="▣">Dashboard</NavItem>
-                    <NavItem icon="◉" badge="Tezliklə" disabled>Analytics</NavItem>
+                    <!-- Roadmap Phase 4.1: dərin analitika aktivləşdirildi. -->
+                    <NavItem :href="route('admin.analytics')" icon="◉">Analytics</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Loyalty Core</div>
                     <NavItem :href="route('admin.ledger')" icon="⊟" badge="12.4k">Ledger</NavItem>
