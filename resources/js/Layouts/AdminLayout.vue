@@ -50,7 +50,8 @@ const ledgerType = computed(() => {
                     <NavItem :href="route('admin.ledger', { type: 'refund' })" :active="ledgerType === 'refund'" icon="↺">Refunds</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Configuration</div>
-                    <NavItem icon="⚙" badge="Tezliklə" disabled>Rules</NavItem>
+                    <!-- Roadmap Phase 4.2: loyalty qaydaları redaktəsi aktivləşdirildi. -->
+                    <NavItem :href="route('admin.rules')" icon="⚙">Rules</NavItem>
                     <NavItem icon="⊞" badge="Tezliklə" disabled>Category Tiers</NavItem>
                     <NavItem icon="★" badge="Tezliklə" disabled>Campaigns</NavItem>
                     <NavItem :href="route('admin.merchants')" icon="◐">Merchants</NavItem>

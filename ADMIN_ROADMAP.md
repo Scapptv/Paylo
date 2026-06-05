@@ -77,9 +77,12 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
   `Admin/Analytics.vue` (inline SVG qrafiklər: kanonik liability trendi, earn/redeem axını,
   tip bölgüsü, top merchant-lər, real period delta-ları). **11 test PASS** (7 kanonik: liabilityTrend
   son dəyəri == Σ bucket.balance sübutlu, refund debit, tip təsnifatı + 4 controller). Nav aktiv.
-- [ ] **4.2 Rules** — earn faizləri (`config/loyalty.php`) admin-redaktə (DB-backed config). Merchant
-  self-service config (deep-audit S7-3) ilə bağlıdır.
-- [ ] **4.3 Category Tiers** — tier multiplier-ləri admin-redaktə (Rules ilə eyni model).
+- [x] **4.2 Rules** ✅ — `loyalty_rules` (key→value override) + `LoyaltyRuleResolver` (boot-da config-ə
+  tətbiq, cache prod-only) + `RulesController` + `Admin/Rules.vue` (earn bp, tier bp, redemption, expiry;
+  bp→%/x hint, source badge, validasiya min/max, reset). **EarnCalculator BYTE-İDENTİK** — kanonik intdiv
+  toxunulmur, yalnız rate mənbəyi. **14 test** (kanonik: EarnCalculator DB-override işlədir; cərrahi override).
+- [x] **4.3 Category Tiers** ✅ — 4.2-yə DAXİL: tier multiplier-ləri (`tier_multipliers_bp.*`) Rules
+  səhifəsində redaktə olunur (eyni override modeli).
 - [ ] **4.4 Campaigns** — promosyon kampaniyaları (yeni model + məntiq + UI).
 - [ ] **4.5 Fraud Signals** — fraud aşkarlama (yeni məntiq + UI).
 
@@ -107,5 +110,7 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | — | **Phase 2 TAM BİTDİ** | ✅ | Buckets + Users + Redemptions/Refunds + Settlements |
 | 3.1 | Audit Logs | ✅ DONE | 5 test PASS, dual-write, immutable store, nav aktiv |
 | 4.1 | Analytics | ✅ DONE | 11 test PASS (7 kanonik), SVG qrafiklər, ledger-əsaslı |
-| 4.2-4.5 | Rules/Tiers/Campaigns/Fraud | ⏳ növbəti | hər biri ayrıca spec |
+| 4.2 | Rules | ✅ DONE | 14 test (kanonik), DB override, EarnCalc dəyişməz |
+| 4.3 | Category Tiers | ✅ DONE | 4.2-yə daxil (tier multiplier override) |
+| 4.4-4.5 | Campaigns/Fraud | ⏳ növbəti | hər biri ayrıca spec |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

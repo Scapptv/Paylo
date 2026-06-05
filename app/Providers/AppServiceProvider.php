@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Core\Services\LoyaltyRuleResolver;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -33,5 +34,11 @@ final class AppServiceProvider extends ServiceProvider
         // qadağası (defense yox, fail-fast development feedback). Lokal mühitdə
         // testlər üçün açıq; production-da log-only.
         Model::shouldBeStrict(! app()->isProduction());
+
+        // Roadmap Phase 4.2: DB-əsaslı loyalty qaydalarını (earn rate, tier
+        // multiplier, redemption, expiry) config-ə tətbiq et. EarnCalculator
+        // dəyişməz qalır — config oxuyur, config indi DB override-larını əks
+        // etdirir. Defensiv: cədvəl yox / xəta → config faylı default-u qalır.
+        $this->app->make(LoyaltyRuleResolver::class)->applyOverrides();
     }
 }

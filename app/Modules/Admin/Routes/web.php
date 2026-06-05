@@ -9,6 +9,7 @@ use App\Modules\Admin\Http\Controllers\BucketController;
 use App\Modules\Admin\Http\Controllers\DashboardController;
 use App\Modules\Admin\Http\Controllers\LedgerController;
 use App\Modules\Admin\Http\Controllers\MerchantController;
+use App\Modules\Admin\Http\Controllers\RulesController;
 use App\Modules\Admin\Http\Controllers\SettlementController;
 use App\Modules\Admin\Http\Controllers\TransactionController;
 use App\Modules\Admin\Http\Controllers\UserController;
@@ -54,6 +55,11 @@ Route::middleware(['auth', 'role:admin'])
 
         // Roadmap Phase 3.1: DB-əsaslı audit jurnalı (read-only, filtrlənən).
         Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs');
+
+        // Roadmap Phase 4.2: loyalty qaydaları (earn rate / tier / redemption / expiry) redaktə.
+        Route::get('/rules',         [RulesController::class, 'index'])->name('rules');
+        Route::post('/rules',        [RulesController::class, 'update'])->name('rules.update');
+        Route::post('/rules/reset',  [RulesController::class, 'reset'])->name('rules.reset');
 
         // Manual bonus düzəlişi (Audit 2026-06-04 CANON-4 + roadmap Phase 1.1) —
         // CREDIT-only, məcburi `reason` (audit). create() admin UI forması,
