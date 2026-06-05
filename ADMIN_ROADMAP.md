@@ -65,9 +65,11 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
   düyməsi (audit). index() read-only (audit yox), run() audit yazır. Nav aktiv. **7 yeni test PASS.**
 
 ### Phase 3 — Audit/compliance (store tələb edir)
-- [ ] **3.1 Audit Logs** — `AuditLogger` hazırda fayl/channel-a yazır. UI üçün DB-backed
-  `audit_logs` cədvəli (migration) + AuditLogger-i ona da yazmaq (dual-write və ya keçid) +
-  filterlənən siyahı UI. Diqqət: PII saxlama qaydaları (QR sha256, telefon maska).
+- [x] **3.1 Audit Logs** ✅ — `audit_logs` migration (append-only, actor_id FK-siz) + `AuditLog`
+  modeli (immutable: update/delete throw) + `AuditLogger` **dual-write** (fayl + DB, defensiv
+  try/catch + `Schema::hasTable` — PG transaction-poison riski yox, biznes əməliyyatını sındırmır) +
+  `AuditLogController` + `Admin/AuditLogs.vue` (event/tarix filtri, aktor, kontekst). Nav aktiv.
+  **5 yeni test PASS** (dual-write, render, filter, authz, immutability). 54 mövcud audit call-site regressiyasız.
 
 ### Phase 4 — Yeni feature-lər (hər biri ayrıca spec + sprint)
 - [ ] **4.1 Analytics** — dərin dashboard (qrafiklər, trend). Mövcud Dashboard stats-ı genişləndirir.
@@ -99,5 +101,6 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | 2.3 | Redemptions/Refunds | ✅ DONE | 2 test PASS, preset nav linkləri (mövcud filtr) |
 | 2.4 | Settlements | ✅ DONE | 7 test PASS, servis refactor, "İndi işlət" + audit |
 | — | **Phase 2 TAM BİTDİ** | ✅ | Buckets + Users + Redemptions/Refunds + Settlements |
-| 3.1 | Audit Logs | ⏳ növbəti | DB-backed store lazım |
+| 3.1 | Audit Logs | ✅ DONE | 5 test PASS, dual-write, immutable store, nav aktiv |
+| 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ növbəti | hər biri ayrıca spec |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

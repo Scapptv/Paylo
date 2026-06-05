@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Modules\Admin\Http\Controllers\AuditLogController;
 use App\Modules\Admin\Http\Controllers\BonusAdjustmentController;
 use App\Modules\Admin\Http\Controllers\BucketController;
 use App\Modules\Admin\Http\Controllers\DashboardController;
@@ -46,6 +47,9 @@ Route::middleware(['auth', 'role:admin'])
         // Roadmap Phase 2.4: settlement reconciliation read-view + "İndi işlət" (audit).
         Route::get('/settlements',     [SettlementController::class, 'index'])->name('settlements');
         Route::post('/settlements/run', [SettlementController::class, 'run'])->name('settlements.run');
+
+        // Roadmap Phase 3.1: DB-əsaslı audit jurnalı (read-only, filtrlənən).
+        Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs');
 
         // Manual bonus düzəlişi (Audit 2026-06-04 CANON-4 + roadmap Phase 1.1) —
         // CREDIT-only, məcburi `reason` (audit). create() admin UI forması,
