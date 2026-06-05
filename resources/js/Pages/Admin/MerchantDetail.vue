@@ -18,9 +18,15 @@ const { aznCompact, compact, date } = useFormat();
     <Head :title="merchant.name" />
     <AdminLayout breadcrumb="Merchant Detail">
 
-        <Link :href="route('admin.merchants')" class="font-mono text-xs uppercase tracking-wider text-muted hover:text-accent mb-6 inline-block">
-            ← Bütün merchant-lar
-        </Link>
+        <div class="flex items-center justify-between mb-6">
+            <Link :href="route('admin.merchants')" class="font-mono text-xs uppercase tracking-wider text-muted hover:text-accent inline-block">
+                ← Bütün merchant-lar
+            </Link>
+            <Link :href="route('admin.merchants.edit', merchant.id)"
+                  class="font-mono text-xs uppercase tracking-wider text-accent hover:text-accent-blue border border-accent/30 px-3 py-1.5">
+                Redaktə et
+            </Link>
+        </div>
 
         <!-- Header -->
         <div class="flex items-start gap-6 mb-10">

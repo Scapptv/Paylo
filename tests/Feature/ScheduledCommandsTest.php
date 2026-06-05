@@ -3,12 +3,17 @@
 declare(strict_types=1);
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+
+uses(RefreshDatabase::class);
 
 /*
 |--------------------------------------------------------------------------
 | Loyalty scheduled commands — qeydiyyatdan keçib və işlədir olmalıdır.
 |--------------------------------------------------------------------------
+| Bu fayl yalnız registry və schedule yoxlamasıdır. Davranış testləri ayrıca
+| (məs. SettlementReconcileTest) yazılıb.
 */
 
 it('registers both loyalty commands in the artisan registry', function () {
@@ -25,7 +30,8 @@ it('runs loyalty:expire-buckets without errors as a no-op skeleton', function ()
     expect(Artisan::output())->toContain('Expire-buckets');
 });
 
-it('runs loyalty:settlement-reconcile without errors as a no-op skeleton', function () {
+it('runs loyalty:settlement-reconcile against an empty database', function () {
+    // Boş DB-də heç bir bucket yoxdur → reconcile mismatch tapmır, exit 0.
     $exitCode = Artisan::call('loyalty:settlement-reconcile', ['--for' => 'yesterday']);
 
     expect($exitCode)->toBe(0);

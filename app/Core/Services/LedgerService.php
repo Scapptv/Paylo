@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Core\Services;
 
 use App\Core\Enums\LedgerEntryType;
+use App\Core\Enums\TransactionStatus;
+use App\Core\Exceptions\InsufficientFundsException;
 use App\Core\Models\Bucket;
 use App\Core\Models\LedgerEntry;
 use App\Core\Models\Merchant;
@@ -90,11 +92,11 @@ final class LedgerService
             $bucket = $this->lockBucket($customer->id, $merchant->id);
 
             if (! $bucket->canSpend($amount)) {
-                throw new RuntimeException(sprintf(
-                    'Kifayət qədər bonus yoxdur. Mövcud: %s, tələb olunur: %s',
-                    (new BonusValue($bucket->balance))->format(),
-                    $amount->format(),
-                ));
+                throw new InsufficientFundsException(
+                    available: new BonusValue($bucket->balance),
+                    required:  $amount,
+                    context:   'redeem',
+                );
             }
 
             $bucket->balance         -= $amount->amount;
@@ -137,8 +139,10 @@ final class LedgerService
             // Refund debit-dir: balansı azaldır
             if ($bucket->balance < $amount->amount) {
                 // Müştəri artıq xərcləyibsə də ledger təmiz qalmalıdır — mənfi balansa düşmə.
-                throw new RuntimeException(
-                    'Müştəri artıq bu bonusu xərcləyib, refund mümkün deyil. Manual adjustment lazımdır.'
+                throw new InsufficientFundsException(
+                    available: new BonusValue($bucket->balance),
+                    required:  $amount,
+                    context:   'refund — manual adjustment lazımdır',
                 );
             }
 
@@ -167,7 +171,65 @@ final class LedgerService
     }
 
     /**
-     * Admin tərəfindən manual adjustment.
+     * Expire — bucket-də vaxtı bitmiş balansı silir.
+     *
+     * Sprint 7.1: `ExpireBucketsCommand` çağırışı üçün. DEBIT entry (Expire tipli),
+     * balansı sıfırlayır, `expired_total` counter-i artırır. Atomic: lock + audit.
+     *
+     * @throws \RuntimeException Bucket tapılmadı və ya balans amount-dan kiçik.
+     */
+    public function expire(
+        User $customer,
+        Merchant $merchant,
+        BonusValue $amount,
+        string $reason = 'auto_expire',
+    ): LedgerEntry {
+        if ($amount->isZero()) {
+            throw new RuntimeException('Expire amount sıfır ola bilməz.');
+        }
+
+        return DB::transaction(function () use ($customer, $merchant, $amount, $reason) {
+            $bucket = $this->lockBucket($customer->id, $merchant->id);
+
+            if ($bucket->balance < $amount->amount) {
+                throw new RuntimeException(sprintf(
+                    'Expire amount bucket balansından böyükdür: bucket=%d, expire=%d.',
+                    $bucket->balance,
+                    $amount->amount,
+                ));
+            }
+
+            $bucket->balance         -= $amount->amount;
+            $bucket->expired_total   += $amount->amount;
+            $bucket->last_activity_at = now();
+            $bucket->save();
+
+            return $this->writeEntry(
+                type: LedgerEntryType::Expire,
+                customer: $customer,
+                merchant: $merchant,
+                amount: $amount,
+                balanceAfter: $bucket->balance,
+                meta: ['reason' => $reason],
+            );
+        });
+    }
+
+    /**
+     * Admin tərəfindən manual adjustment — yalnız CREDIT (bucket-ə bonus əlavə edir).
+     *
+     * Audit C-3: Bu metod debit (bonus çıxma) DƏSTƏKLƏMİR — `$amount->amount`
+     * həmişə `balance`-a əlavə olunur. Adjustment-də mənfi balansa düşmə
+     * yoxlanışı yoxdur, bucket DB constraint-i (`balance >= 0`) yalnız credit
+     * istiqaməti üçün təhlükəsizdir.
+     *
+     * Bonus geri qaytarılmalıdırsa (məs. yanlış mükafat verildi və ya müştəri
+     * şikayət etdi və geri alınmalıdır), düzgün axın `refund()` və ya
+     * `reverseTransaction()`-dur — onlar canSpend yoxlanışı edir və mənfi
+     * balansa düşməni qadağan edir.
+     *
+     * @param BonusValue $amount Müsbət, sıfırdan böyük məbləğ (BonusValue
+     *                           sıfır/mənfi-i konstruksiya səviyyəsində bloklayır).
      */
     public function adjust(
         User $customer,
@@ -251,9 +313,20 @@ final class LedgerService
                 }
                 usleep(10_000); // 10ms backoff
             } catch (\Illuminate\Database\QueryException $e) {
-                // Deadlock (SQLSTATE 40001 / MySQL 1213) və ya lock timeout — retry et.
-                $sqlState = $e->getCode();
-                if (! in_array($sqlState, ['40001', '40P01'], strict: true) || ++$attempts >= $maxAttempts) {
+                // Deadlock / lock timeout — retry et. PDO mühitə görə fərqli
+                // dəyərlər qaytarır:
+                //  - SQLSTATE: '40001' (serialization failure) və '40P01' (Postgres deadlock)
+                //  - MySQL driver code: 1213 (deadlock), 1205 (lock wait timeout)
+                //
+                // İkisini də yoxlayırıq ki, hər iki driver-də etibarlı retry edək.
+                $sqlState   = $e->getCode();
+                $driverCode = $e->errorInfo[1] ?? null;
+
+                $isRetryable = in_array($sqlState, ['40001', '40P01'], strict: true)
+                    || $driverCode === 1213
+                    || $driverCode === 1205;
+
+                if (! $isRetryable || ++$attempts >= $maxAttempts) {
                     throw $e;
                 }
                 usleep(10_000);
@@ -298,15 +371,34 @@ final class LedgerService
         // SELECT/audit sorğuları yazılarla bloklaşmır.
         //
         // Bu çağırı əsalinən LedgerService-dəki hər metod artıq DB::transaction içindir.
+        // Self-heal: əgər tail row hər hansı səbəbdən yoxdursa (məs DBA manual
+        // silməsi, fresh DB-də migration runner gözə dəyməyən kənar yol),
+        // boş tail yarat və yenidən kilidlə. Migration `0001_01_01_000500` zaten
+        // bu sətri INSERT edir; bu blok yalnız müdafiə qatıdır.
         $tail = DB::table('ledger_chain_tail')
             ->where('id', 1)
             ->lockForUpdate()
             ->first();
 
         if ($tail === null) {
-            throw new RuntimeException(
-                'ledger_chain_tail sətri tapılmadı — migration 0001_01_01_000500 run olunmalıdır.'
-            );
+            DB::table('ledger_chain_tail')->insertOrIgnore([
+                'id'            => 1,
+                'last_entry_id' => null,
+                'last_hash'     => null,
+                'updated_at'    => now(),
+            ]);
+            $tail = DB::table('ledger_chain_tail')
+                ->where('id', 1)
+                ->lockForUpdate()
+                ->first();
+
+            // Konkurent prosess artıq yaratdısa, yenidən cəhddə tutmalıyıq.
+            if ($tail === null) {
+                throw new RuntimeException(
+                    'ledger_chain_tail sətrini yarada və ya kilidləyə bilmədik. '
+                    . 'DB connection və migration vəziyyətini yoxla.'
+                );
+            }
         }
 
         $prevHash = $tail->last_hash;
@@ -473,30 +565,22 @@ final class LedgerService
             // Lock + re-fetch fresh status.
             $tx = Transaction::lockForUpdate()->findOrFail($tx->id);
 
-            if ($tx->status === 'reversed') {
+            if ($tx->status === TransactionStatus::Reversed) {
                 throw new RuntimeException('Transaction artıq reverse olunub: ' . $tx->receipt_no);
             }
 
             $reverseEntries = [];
 
-            // 1) Earn-i Reversal (debit) ilə geri qaytar — orijinal entry SİLİNMİR.
-            if ((int) $tx->earned_amount > 0) {
-                $earnEntry = LedgerEntry::where('merchant_id', $tx->merchant_id)
-                    ->where('ref', $tx->receipt_no)
-                    ->where('type', LedgerEntryType::Earn)
-                    ->first();
+            // Audit 2026-06-04 CANON-3: ƏVVƏL redeem-i geri qaytar (credit), SONRA
+            // earn-i geri al (debit). Əks sıra (debit-first) eyni satışda həm redeem,
+            // həm earn olduqda ETİBARLI reversal-ı səhvən rədd edirdi: earn clawback
+            // `balance >= earn` yoxlayırdı, halbuki düzgün şərt `balance + redeem >= earn`
+            // (redeem bərpasından sonra balans artır). Credit-first heç vaxt mənfi
+            // balansa düşmür və düzgün şərti tətbiq edir; yekun balans dəyişmir
+            // (toplama/çıxma kommutativdir), yalnız aralıq balans və uğursuzluq şərti
+            // dəqiqləşir.
 
-                if ($earnEntry) {
-                    $reverseEntries[] = $this->writeReversalDebit(
-                        original:        $earnEntry,
-                        cashierId:       $cashierId,
-                        returnReceiptNo: $returnReceiptNo,
-                        reason:          $reason,
-                    );
-                }
-            }
-
-            // 2) Redeem-i bucket-ə geri qaytar — Adjustment credit
+            // 1) Redeem-i bucket-ə geri qaytar — Adjustment credit
             //    (Reversal enum debit-only olduğu üçün; meta marker ilə tanınır).
             if ((int) $tx->redeemed_amount > 0) {
                 $customer = User::findOrFail($tx->user_id);
@@ -516,8 +600,27 @@ final class LedgerService
                 );
             }
 
+            // 2) Earn-i Reversal (debit) ilə geri qaytar — orijinal entry SİLİNMİR.
+            //    Redeem bərpasından SONRA gəlir ki, clawback artıq bərpa olunmuş
+            //    balansa qarşı yoxlansın (CANON-3).
+            if ((int) $tx->earned_amount > 0) {
+                $earnEntry = LedgerEntry::where('merchant_id', $tx->merchant_id)
+                    ->where('ref', $tx->receipt_no)
+                    ->where('type', LedgerEntryType::Earn)
+                    ->first();
+
+                if ($earnEntry) {
+                    $reverseEntries[] = $this->writeReversalDebit(
+                        original:        $earnEntry,
+                        cashierId:       $cashierId,
+                        returnReceiptNo: $returnReceiptNo,
+                        reason:          $reason,
+                    );
+                }
+            }
+
             // 3) Transaction-ı reversed statusuna keçir.
-            $tx->status = 'reversed';
+            $tx->status = TransactionStatus::Reversed;
             $tx->save();
 
             return $reverseEntries;

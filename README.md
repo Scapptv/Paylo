@@ -53,3 +53,38 @@ php artisan serve
 ```
 
 Default test istifadəçilər `database/seeders/UserSeeder.php` daxilindədir.
+
+## Gündəlik (scheduled) əməliyyatlar
+
+`routes/console.php`-də qeydiyyatdan keçmiş command-lar (production cron tələb edir: `php artisan schedule:work`):
+
+| Command | Cədvəl | Məqsəd | Status |
+|---|---|---|---|
+| `loyalty:settlement-reconcile --for=yesterday` | Hər gün 02:00 | Bucket counter-ləri ledger toplamı ilə müqayisə edir; mismatch → audit log + exit 1 (alerting) | ✅ Tam implementasiya |
+| `loyalty:expire-buckets` | Hər gün 03:00 | Vaxtı keçmiş bonusu `Expire` entry kimi yazıb sıfırlayır | ⏳ Skeleton (`future`) — biznes qaydası dəqiqləşdikdə |
+
+Settlement reconcile manual yoxlama üçün:
+
+```bash
+# Bütün bucket-ləri yoxla (manual full audit)
+php artisan loyalty:settlement-reconcile --for=all
+
+# Tek bir merchant
+php artisan loyalty:settlement-reconcile --for=today --merchant=42
+
+# Audit log yazma, yalnız konsolda göstər
+php artisan loyalty:settlement-reconcile --for=yesterday --dry-run
+```
+
+## MVP scope və `future` etiketli funksiyalar
+
+Aşağıdakı funksiyalar **MVP-də yoxdur**; UI link-ləri ya gizlədilib, ya "Tezliklə" badge ilə işarələnib. Audit qərarına əsasən sənədləşdirilir:
+
+- **Email verification** — `Api-6` qərarı ilə silindi. `User MustVerifyEmail` implement etmir, register endpoint generic 200 qaytarır. Future: `MustVerifyEmail` trait, queued mail template, `/api/v1/auth/verify-email` endpoint.
+- **Password reset** — login səhifəsi `canResetPassword=true` ötürür, lakin route mövcud deyil. Future: standard Laravel password reset (signed link + token).
+- **Admin CRUD (merchant/user)** — read-only by design. Yalnız `reverseTransaction` admin əməli vardır. Future: ehtiyac yaranarsa, audit log + 2FA ilə qorunmuş CRUD.
+- **Merchant paneli geniş funksiyaları** — müştəri search, manual adjustment UI, branch CRUD, cashier CRUD. Hazırda yalnız dashboard. Future: merchant_owner üçün tam idarəetmə.
+- **ExpireBucketsCommand tam implementasiya** — `expire_after_days` config-i var (365 gün), lakin command no-op. Future: `last_activity_at + expire_after_days < now` üçün `Expire` entry yaz, bucket balansını azalt.
+- **`expiring_soon` hesablama qaydası** — `/api/v1/wallet` cavabındakı `expiring_soon` məbləği `last_activity_at < (now - 335 gün)` olan bucket-lərin balansı kimi hesablanır (audit Api-10). MVP-də faktiki expiration job işləmir, ona görə bu yalnız "tezliklə bitir" UI rozeti üçün hint dəyəridir. ExpireBucketsCommand tam tətbiq olunduqda hesablanma onunla uyğunlaşdırılacaq.
+- **Wallet entries filter** — `recent_entries` `/wallet`-də sadəcə son 10 yazıdır; tam filtr (`type`, `merchant_id`, `from`, `to`, cursor) `GET /api/v1/history` endpoint-i ilə dəstəklənir (audit Usr-2/Api-10). Mobile-da "tarixçə" ekranı bu endpoint-i çağırır.
+- **Admin nav "coming soon" linklər** — bəzi sidebar element-ləri `href="#"` (FE-3); Sprint 2-də "Tezliklə" badge ilə işarələnir.

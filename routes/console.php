@@ -32,3 +32,31 @@ Schedule::command(SettlementReconcileCommand::class, ['--for=yesterday'])
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();
+
+/*
+|--------------------------------------------------------------------------
+| Production backup schedule (spatie/laravel-backup)
+|--------------------------------------------------------------------------
+| Production checklist: hər gecə tam DB + .env + storage/app backup-ı.
+| Destination `config/backup.php` `backup.destination.disks`-da təyin olunur
+| (default `local`; production-da S3 və ya off-site disk göstərilməlidir).
+*/
+
+// Köhnə backup-ları təmizlə — config-də keep policy (gündəlik/həftəlik/aylıq).
+Schedule::command('backup:clean')
+    ->dailyAt('01:30')
+    ->withoutOverlapping()
+    ->onOneServer();
+
+// Yeni backup yarat — DB + fayllar.
+Schedule::command('backup:run')
+    ->dailyAt('01:45')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground();
+
+// Backup sağlamlığını yoxla — son backup-ın yaşı, ölçüsü, mövcudluğu.
+Schedule::command('backup:monitor')
+    ->dailyAt('05:00')
+    ->withoutOverlapping()
+    ->onOneServer();

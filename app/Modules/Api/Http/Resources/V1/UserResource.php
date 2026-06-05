@@ -13,16 +13,29 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 final class UserResource extends JsonResource
 {
+    /**
+     * Audit Api-6: `email_verified` field-i çıxarıldı. User modeli
+     * MustVerifyEmail implement etmir, listener yox idi — field heç vaxt true
+     * olmurdu və mobile app-i yalnış istiqamətə yönəldirdi. Email verification
+     * gələcəkdə implement edilərsə (queued mail + verify endpoint), bu field
+     * yenidən əlavə olunmalıdır.
+     *
+     * Audit Api-16: `locale` field-i sabit `null` olaraq qaytarılır — DB-də
+     * sütun mövcud olmadığı üçün `PUT /me`-dəki `locale` parametri yalnız
+     * validate olunur, persist olunmur. Mobile app interface contract-ı
+     * qorumaq üçün field response-da əlçatandır. Gələcəkdə `users.locale`
+     * sütunu əlavə edildikdə burada `$this->locale` qaytarılmalıdır.
+     */
     public function toArray(Request $request): array
     {
         return [
-            'id'             => $this->id,
-            'name'           => $this->name,
-            'email'          => $this->email,
-            'phone'          => $this->phone,
-            'role'           => $this->role->value,
-            'customer_qr'    => $this->customer_qr,
-            'email_verified' => $this->email_verified_at !== null,
+            'id'          => $this->id,
+            'name'        => $this->name,
+            'email'       => $this->email,
+            'phone'       => $this->phone,
+            'role'        => $this->role->value,
+            'customer_qr' => $this->customer_qr,
+            'locale'      => null,
         ];
     }
 }

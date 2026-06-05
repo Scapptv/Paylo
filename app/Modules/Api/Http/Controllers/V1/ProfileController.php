@@ -34,10 +34,13 @@ final class ProfileController extends Controller
 
     public function update(Request $request): JsonResponse
     {
+        // Audit Api-8: phone üçün E.164 yaxın regex (RegisterRequest ilə eyni qayda).
         $validated = $request->validate([
             'name'   => ['sometimes', 'string', 'max:255'],
-            'phone'  => ['sometimes', 'nullable', 'string', 'max:32'],
+            'phone'  => ['sometimes', 'nullable', 'string', 'max:32', 'regex:/^\+?\d{6,15}$/'],
             'locale' => ['sometimes', 'string', 'in:az,en,ru'],
+        ], [
+            'phone.regex' => 'Telefon nömrəsi E.164 formatında olmalıdır: opsional "+" və sonra 6–15 rəqəm.',
         ]);
 
         $user = $request->user();

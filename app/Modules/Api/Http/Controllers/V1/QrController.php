@@ -23,6 +23,13 @@ final class QrController extends Controller
     {
     }
 
+    /**
+     * Audit Api-5: `static_qr` response-dan çıxarıldı. Mobile app static QR-i
+     * yalnız bir dəfə (login / register cavabında `user.customer_qr`) götürüb
+     * lokal saxlamalıdır — rotating endpoint hər çağırışda göndərməməlidir.
+     * Bu, log/network leak vektorunu azaldır və rotating sisteminin niyyətini
+     * gücləndirir (cashier əldə etdiyi token həmişə ephemeral olur).
+     */
     public function generate(Request $request): JsonResponse
     {
         $user    = $request->user();
@@ -32,7 +39,6 @@ final class QrController extends Controller
             'qr_value'   => $payload['token'],
             'expires_at' => $payload['expires_at'],
             'ttl'        => self::TTL_SECONDS,
-            'static_qr'  => $user->customer_qr,
         ]);
     }
 }

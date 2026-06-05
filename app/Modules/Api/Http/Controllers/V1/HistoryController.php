@@ -44,6 +44,14 @@ final class HistoryController extends Controller
     {
         $user = $request->user();
 
+        // Audit Api-12 (trade-off, by design): `exists:merchants,id` nəzəri olaraq
+        // attacker-ə "bu ID-li merchant mövcuddurmu?" sualına cavab verir (422 vs
+        // 200 fərqi ilə enumeration). Lakin merchant ID-ləri public deyil və
+        // public discovery imkanı zaten yoxdur (login yalnız customer, merchant
+        // siyahısı admin role-undadır). Compliance qazancı (yanlış ID üçün 422
+        // əvəzinə uğursuz sorğu) bu marjinal enumeration riskini üstələyir.
+        // Gələcəkdə merchant directory public olarsa, `exists` rule-u silmək
+        // və yalnız user-in bucket-i olan merchant-ları whitelist etmək lazımdır.
         $validated = $request->validate(self::COMMON_FILTER_RULES + [
             'merchant_id' => ['nullable', 'integer', 'exists:merchants,id'],
         ]);
@@ -61,14 +69,16 @@ final class HistoryController extends Controller
     /**
      * GET /api/v1/buckets/{bucket}/history — bir bucket-ə aid ledger yazıları.
      *
-     * Təhlükəsizlik: sahiblik yoxlaması — başqa istifadəçinin bucket-inə
-     * açmaq cəhdi 403 qaytarır.
+     * Təhlükəsizlik (audit Api-7): sahiblik yoxlaması — başqa istifadəçinin
+     * bucket-inə açmaq cəhdi 404 qaytarır (403 deyil). 403 attacker-ə bucket
+     * ID-nin mövcud olduğunu təsdiq edirdi (enumeration); 404 ilə "mövcud
+     * deyil" və "səninki deyil" cavabları fərqlənmir.
      */
     public function forBucket(Request $request, Bucket $bucket): JsonResponse
     {
         $user = $request->user();
 
-        abort_unless($bucket->user_id === $user->id, 403);
+        abort_unless($bucket->user_id === $user->id, 404);
 
         $validated = $request->validate(self::COMMON_FILTER_RULES);
 
@@ -112,7 +122,17 @@ final class HistoryController extends Controller
 
         $limit = (int) ($validated['limit'] ?? 20);
 
-        $page = $query->orderByDesc('id')->cursorPaginate($limit, ['*'], 'cursor', $cursor);
+        // Audit Api-15: `SELECT *` əvəzinə açıq sütun siyahısı.
+        // Gələcəkdə ledger_entries cədvəlinə internal/sensitive sütun (məs.
+        // `entry_hash`, `prev_hash`) əlavə edilərsə, response-da təsadüfən
+        // qaytarılmasın. LedgerEntryResource də yalnız bunları işlədir.
+        $page = $query->orderByDesc('id')->cursorPaginate(
+            $limit,
+            ['id', 'uid', 'user_id', 'merchant_id', 'type', 'amount',
+             'balance_after', 'ref', 'reverses_id', 'meta', 'created_at'],
+            'cursor',
+            $cursor,
+        );
 
         return response()->json([
             'data'        => LedgerEntryResource::collection($page->items())->toArray($request),

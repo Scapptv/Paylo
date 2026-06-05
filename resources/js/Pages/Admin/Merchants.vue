@@ -38,7 +38,13 @@ const statusVariant = {
                     Bütün <em class="italic font-semibold text-accent">merchant-lar</em>
                 </h1>
             </div>
-            <div class="font-mono text-xs text-muted"><span class="text-accent">{{ merchants.total }}</span> merchants</div>
+            <div class="flex items-center gap-4">
+                <div class="font-mono text-xs text-muted"><span class="text-accent">{{ merchants.total }}</span> merchants</div>
+                <Link :href="route('admin.merchants.create')"
+                      class="btn-primary text-xs px-4 py-2 font-mono uppercase tracking-wider">
+                    + Yeni merchant
+                </Link>
+            </div>
         </div>
 
         <div class="card mb-6 flex flex-wrap gap-3">

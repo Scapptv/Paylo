@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Core\Enums\LedgerEntryType;
+use App\Core\Enums\TransactionStatus;
 use App\Core\Enums\UserRole;
 use App\Core\Models\Bucket;
 use App\Core\Models\LedgerEntry;
@@ -117,7 +118,7 @@ it('requires a reason (at least 3 chars)', function () {
         ->assertStatus(422)
         ->assertJsonValidationErrors(['reason']);
 
-    expect($this->tx->fresh()->status)->toBe('completed');
+    expect($this->tx->fresh()->status)->toBe(TransactionStatus::Completed);
 });
 
 it('requires return_receipt_no', function () {
@@ -126,7 +127,7 @@ it('requires return_receipt_no', function () {
         ->assertStatus(422)
         ->assertJsonValidationErrors(['return_receipt_no']);
 
-    expect($this->tx->fresh()->status)->toBe('completed');
+    expect($this->tx->fresh()->status)->toBe(TransactionStatus::Completed);
 });
 
 it('is idempotent — second reverse returns already_reversed', function () {
@@ -164,7 +165,7 @@ it('blocks non-admin roles', function () {
         ])
         ->assertStatus(403);
 
-    expect($this->tx->fresh()->status)->toBe('completed');
+    expect($this->tx->fresh()->status)->toBe(TransactionStatus::Completed);
 });
 
 it('blocks unauthenticated requests', function () {

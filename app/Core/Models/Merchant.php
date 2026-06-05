@@ -4,23 +4,24 @@ declare(strict_types=1);
 
 namespace App\Core\Models;
 
+use App\Core\Enums\MerchantStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * @property int    $id
- * @property string $code           Public id, məs: "m_412"
- * @property string $name
- * @property string $legal_name
- * @property string $tin
- * @property int    $mcc
- * @property string $category       grocery, restaurant, fuel, pharmacy, retail ...
- * @property string $tier           standard | premium | enterprise
- * @property string $status         active | pending | paused | revoked
- * @property string $region
- * @property string $settlement_iban
- * @property string $settlement_cycle  T+1, T+3, T+5 ...
+ * @property int             $id
+ * @property string          $code           Public id, məs: "m_412"
+ * @property string          $name
+ * @property string          $legal_name
+ * @property string          $tin
+ * @property int             $mcc
+ * @property string          $category       grocery, restaurant, fuel, pharmacy, retail ...
+ * @property string          $tier           standard | premium | enterprise
+ * @property MerchantStatus  $status         active | pending | paused | revoked
+ * @property string          $region
+ * @property string          $settlement_iban
+ * @property string          $settlement_cycle  T+1, T+3, T+5 ...
  */
 class Merchant extends Model
 {
@@ -35,6 +36,7 @@ class Merchant extends Model
     {
         return [
             'mcc'          => 'integer',
+            'status'       => MerchantStatus::class,
             'onboarded_at' => 'datetime',
         ];
     }
@@ -61,6 +63,6 @@ class Merchant extends Model
 
     public function isActive(): bool
     {
-        return $this->status === 'active';
+        return $this->status === MerchantStatus::Active;
     }
 }

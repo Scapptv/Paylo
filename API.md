@@ -228,10 +228,14 @@ Bucket sahibi cari user deyilsə **403 Forbidden** qaytarır.
 {
   "qr_value":   "qr1.qr_clsztufrcaaa.1778998704.40801dc44cecc2cd",
   "expires_at": "2026-05-17T06:18:24+00:00",
-  "ttl":        30,
-  "static_qr":  "qr_clsztufrcaaa"
+  "ttl":        30
 }
 ```
+
+> **Təhlükəsizlik (audit Api-5 / §11.3):** `static_qr` bu cavabda **QAYTARILMIR**.
+> Mobile static `customer_qr`-i yalnız login/register cavabında bir dəfə alıb lokal
+> secure storage-da saxlayır; rotating endpoint heç vaxt static QR-i ötürmür.
+> `ApiQrTest` bunu `assertJsonMissingPath('static_qr')` ilə qoruyur.
 
 **Format:** `qr1.{user_qr}.{unix_exp}.{hmac16}`
 **HMAC:** `substr(hash_hmac('sha256', "{user_qr}.{unix_exp}", APP_KEY), 0, 16)`

@@ -19,7 +19,14 @@ Route::middleware(['auth', 'role:cashier,pos_terminal,merchant_owner,merchant_st
 
         Route::post('/preview', [SaleController::class, 'preview'])->name('preview');
         Route::post('/sale', [SaleController::class, 'complete'])->name('complete');
+    });
 
+// Reverse — yalnız merchant sahibi/işçisi və admin. Kassir/POS terminalı satışı geri qaytara bilməz
+// (audit P-4: kassir səviyyəsində refund vəzifə bölgüsünü pozur, fraud riski yaradır).
+Route::middleware(['auth', 'role:merchant_owner,merchant_staff,admin', 'merchant.scope'])
+    ->prefix('pos')
+    ->name('pos.')
+    ->group(function () {
         // Satışı geri qaytar — receipt_no path-də, merchant scope-dan kənar qəbz 404 verir.
         Route::post('/sale/{receiptNo}/reverse', [SaleController::class, 'reverse'])
             ->where('receiptNo', '[A-Za-z0-9._-]{1,64}')

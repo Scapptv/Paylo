@@ -4,21 +4,22 @@ declare(strict_types=1);
 
 namespace App\Core\Models;
 
+use App\Core\Enums\TransactionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * @property int    $merchant_id
- * @property int    $branch_id
- * @property int    $cashier_id
- * @property int    $user_id           müştəri
- * @property string $receipt_no
- * @property int    $sale_amount       qəpik (məs: 5840 = 58.40 AZN)
- * @property int    $earned_amount
- * @property int    $redeemed_amount
- * @property string $status            completed | refunded | reversed
+ * @property int                $merchant_id
+ * @property int                $branch_id
+ * @property int                $cashier_id
+ * @property int                $user_id           müştəri
+ * @property string             $receipt_no
+ * @property int                $sale_amount       qəpik (məs: 5840 = 58.40 AZN)
+ * @property int                $earned_amount
+ * @property int                $redeemed_amount
+ * @property TransactionStatus  $status            completed | refunded | reversed
  */
 class Transaction extends Model
 {
@@ -36,6 +37,7 @@ class Transaction extends Model
             'sale_amount'     => 'integer',
             'earned_amount'   => 'integer',
             'redeemed_amount' => 'integer',
+            'status'          => TransactionStatus::class,
             'occurred_at'     => 'datetime',
         ];
     }

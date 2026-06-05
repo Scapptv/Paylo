@@ -10,13 +10,13 @@ use Illuminate\Support\ServiceProvider;
 /**
  * Bütün modul service provider-ləri üçün baza sinif.
  *
- * Subklas yalnız 4 abstract metod implement edir:
+ * Subklas yalnız 2 abstract metod implement edir:
  *   - moduleName()  : "Admin", "Merchant" ...
  *   - routesPath()  : __DIR__ . '/../Routes/web.php'
  *
- * Avtomatik:
- *   - route-ları "web" middleware ilə yükləyir
- *   - module-spesifik translation-ları yükləyir (gələcəkdə)
+ * İstəyə görə override:
+ *   - routeMiddleware() — default 'web'; Api modulu üçün 'api'.
+ *   - routePrefix()     — default null; Api modulu üçün 'api'.
  */
 abstract class ModuleServiceProvider extends ServiceProvider
 {
@@ -28,12 +28,33 @@ abstract class ModuleServiceProvider extends ServiceProvider
     abstract protected function moduleName(): string;
     abstract protected function routesPath(): string;
 
+    /**
+     * Route group middleware. Default 'web' — Inertia + session.
+     * Api üçün 'api' override edilir (Sanctum stateless).
+     */
+    protected function routeMiddleware(): string
+    {
+        return 'web';
+    }
+
+    /**
+     * URI prefix-i (məs `api`). null isə prefix əlavə olunmur.
+     */
+    protected function routePrefix(): ?string
+    {
+        return null;
+    }
+
     private function loadRoutes(): void
     {
         if (! file_exists($this->routesPath())) {
             return;
         }
 
-        Route::middleware('web')->group($this->routesPath());
+        $route = Route::middleware($this->routeMiddleware());
+        if ($this->routePrefix() !== null) {
+            $route = $route->prefix($this->routePrefix());
+        }
+        $route->group($this->routesPath());
     }
 }

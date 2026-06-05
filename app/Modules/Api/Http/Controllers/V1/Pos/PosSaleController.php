@@ -306,10 +306,15 @@ final class PosSaleController extends Controller
      * POST /api/v1/pos/sale/{receipt_no}/reverse — satışı geri qaytar.
      *
      * Web tərəfdə bu endpoint yalnız merchant_owner/staff/admin üçün açıqdır
-     * (kassir səviyyəsində refund vəzifə bölgüsünü pozur — audit P-4). API
-     * tərəfdə isə POSNET-in özü ümumi inteqrasiya səviyyəsində dayandığı üçün
-     * `pos:write` ability-li token bu əməliyyatı edə bilər; mağazanın daxili
-     * səlahiyyət modeli POSNET tərəfdə (kassir vs müdir butonu) həll olunur.
+     * (kassir səviyyəsində refund vəzifə bölgüsünü pozur — audit P-4).
+     *
+     * Audit 2026-06-04 CANON-1: API tərəfdə reverse ƏLAVƏ `pos:reverse` ability-si
+     * TƏLƏB EDİR (route `app/Modules/Api/Routes/api.php`-də `ability:pos:reverse`
+     * ilə qorunur; `PosApiSecurityTest` doğrulayır). `pos:write`-only token reverse
+     * edə BİLMƏZ — sızdırılmış satış token-i ilə müştəri bonusunun batch drenajının
+     * qarşısı alınır. `pos:reverse` token-i yalnız operator istəyəndə
+     * (`pos:issue-token --include-reverse`) verilir; mağazanın daxili kassir-vs-müdir
+     * səlahiyyəti POSNET tərəfdə həll olunur.
      */
     public function reverse(PosReverseSaleRequest $request, string $receiptNo): JsonResponse
     {

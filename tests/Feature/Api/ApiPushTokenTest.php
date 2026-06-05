@@ -48,9 +48,10 @@ it('upserts an existing token for the same user (no duplicates)', function () {
     expect($row->app_version)->toBe('2.0.0');
 });
 
-it('hijacks-prevention: takes over a token from another user (by design)', function () {
-    // Bu davranış qəsdidir — token başqasının cihazına bağlıdırsa,
-    // onun bağlamasını silirik (token bilməklə kanal ələ keçirilməsin deyə).
+it('rejects cross-user push token registration with 403 (Audit Api-4)', function () {
+    // Audit Api-4: əvvəlki davranış (silmə + yenidən bağlama) DoS vektoru idi —
+    // attacker leak olmuş token ilə victim-in push channel-ini söndürə bilərdi.
+    // İndi cross-user cəhd 403 qaytarır, mövcud bağlama toxunulmaz qalır.
     $other = User::factory()->create(['role' => UserRole::Customer]);
     PushToken::create([
         'user_id' => $other->id, 'token' => 'fcm-shared', 'platform' => 'ios', 'last_seen_at' => now(),
@@ -60,10 +61,11 @@ it('hijacks-prevention: takes over a token from another user (by design)', funct
 
     $this->postJson('/api/v1/push/register', [
         'token' => 'fcm-shared', 'platform' => 'android',
-    ])->assertOk();
+    ])->assertStatus(403);
 
-    expect(PushToken::where('user_id', $other->id)->where('token', 'fcm-shared')->count())->toBe(0);
-    expect(PushToken::where('user_id', $this->user->id)->where('token', 'fcm-shared')->count())->toBe(1);
+    // Mövcud bağlama dəyişməyib, hücumçunun bağlaması yaranmayıb.
+    expect(PushToken::where('user_id', $other->id)->where('token', 'fcm-shared')->count())->toBe(1);
+    expect(PushToken::where('user_id', $this->user->id)->where('token', 'fcm-shared')->count())->toBe(0);
 });
 
 it('rejects invalid platform', function () {

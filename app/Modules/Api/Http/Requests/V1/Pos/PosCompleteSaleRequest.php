@@ -25,10 +25,15 @@ class PosCompleteSaleRequest extends FormRequest
         $merchantId = (int) ($this->user()?->merchant_id ?? 0);
 
         return [
+            // Audit 2026-06-04 WEB-2: yalnız AKTİV Customer (web CompleteSaleRequest
+            // ilə eyni invariant) — POSNET stale customer_id ilə deaktiv hesaba
+            // bonus yaza bilməsin.
             'customer_id'       => [
                 'required',
                 'integer',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', UserRole::Customer->value)),
+                Rule::exists('users', 'id')->where(fn ($q) => $q
+                    ->where('role', UserRole::Customer->value)
+                    ->where('is_active', true)),
             ],
             'sale_amount_cents' => ['required', 'integer', 'min:1', 'max:99999999'],
             // Domain-level idempotency: (merchant_id, receipt_no) unique.

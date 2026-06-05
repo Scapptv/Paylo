@@ -31,6 +31,20 @@ final class EarnCalculator
 
     public function calculate(Merchant $merchant, BonusValue $saleAmount): BonusValue
     {
+        // Audit P-10: defensive 32-bit overflow yoxlaması.
+        // Maksimum hesablanma: 99 999 999 (max sale_cents) × 10 000 (max rateBp)
+        // × 10 000 (max tierBp) = ~10^16, 32-bit PHP-də integer overflow
+        // (PHP_INT_MAX 32-bitdə ≈ 2.1×10^9) silent float-a sürüşməyə səbəb olur.
+        // 64-bit PHP-də (PHP_INT_MAX ≈ 9.2×10^18) təhlükəsizdir. Production
+        // mühitdə 64-bit olmasını fail-fast şəkildə tələb edirik — yoxsa ledger
+        // yuvarlanma xətaları sezdirməz şəkildə özünü göstərə bilər.
+        if (PHP_INT_SIZE !== 8) {
+            throw new \RuntimeException(
+                'EarnCalculator 64-bit PHP tələb edir (PHP_INT_SIZE=' . PHP_INT_SIZE
+                . '). 32-bit mühitdə hesablama overflow ola bilər.'
+            );
+        }
+
         // ---- Konfiq oxunuşu: fail-fast, səssiz 0-a sürüşmə YOXDUR ----
         $rates = config('loyalty.earn_rates_bp');
         if (! is_array($rates) || $rates === []) {

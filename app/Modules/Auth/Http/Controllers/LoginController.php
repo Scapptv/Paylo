@@ -10,6 +10,7 @@ use App\Modules\Auth\Services\RoleRouter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -23,15 +24,26 @@ class LoginController extends Controller
     {
     }
 
-    /** Login formu */
+    /** Login formu.
+     *
+     * Audit Sprint 2: Password reset MVP-də mövcud deyil (`future` etiketi
+     * README-də). UI link gizlədilir ki, "Şifrəni unutdum" 404-ə getməsin.
+     */
     public function show(): Response
     {
         return Inertia::render('Auth/Login', [
-            'canResetPassword' => true,
+            'canResetPassword' => false,
         ]);
     }
 
-    /** POST /login */
+    /**
+     * POST /login
+     *
+     * Audit A-5: deaktiv hesab üçün ayrıca "Hesabınız deaktiv edilib" mesajı
+     * email enumeration imkanı verirdi (attacker email + parol uyğunluğunu
+     * deaktiv brand-ından təsdiq edə bilərdi). İndi həm yanlış cred, həm
+     * deaktiv hesab eyni generic "Yanlış e-poçt və ya şifrə" mesajını alır.
+     */
     public function store(LoginRequest $request): RedirectResponse
     {
         $request->authenticate();
@@ -40,10 +52,12 @@ class LoginController extends Controller
         $user = Auth::user();
 
         if (! $user->is_active) {
-            Auth::logout();
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
 
-            return back()->withErrors([
-                'email' => 'Hesabınız deaktiv edilib. Adminə müraciət edin.',
+            throw ValidationException::withMessages([
+                'email' => 'Yanlış e-poçt və ya şifrə.',
             ]);
         }
 

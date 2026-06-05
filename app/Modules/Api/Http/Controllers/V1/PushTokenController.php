@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Api\Http\Controllers\V1;
 
 use App\Core\Models\PushToken;
+use App\Core\Services\AuditLogger;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +17,10 @@ use Illuminate\Support\Carbon;
  */
 final class PushTokenController extends Controller
 {
+    public function __construct(private readonly AuditLogger $audit)
+    {
+    }
+
     public function register(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -27,12 +32,25 @@ final class PushTokenController extends Controller
 
         $user = $request->user();
 
-        // Təhlükəsizlik: token başqa istifadəçiyə bağlıdırsa, onu silirik —
-        // əks halda `updateOrCreate(['token' => ...])` qarşı tərəfin user_id-ni
-        // override edib onun push channel-ini ələ keçirərdi (token bilməklə).
-        PushToken::where('token', $validated['token'])
+        // Audit Api-4: əgər bu token başqa user-ə bağlıdırsa, onu **silmirik**.
+        // Köhnə davranış (silmək) DoS vektoru idi: leak olmuş token ilə attacker
+        // victim-in push channel-ini söndürə bilərdi. İndi əvəzində 403 + audit
+        // log: lazımsız side-effect yox, incident görünür.
+        $existingOnOtherUser = PushToken::where('token', $validated['token'])
             ->where('user_id', '!=', $user->id)
-            ->delete();
+            ->first();
+
+        if ($existingOnOtherUser !== null) {
+            $this->audit->log('api.push.register.cross_user_attempt', [
+                'requester_user_id' => $user->id,
+                'token_owner_id'    => $existingOnOtherUser->user_id,
+                'token_hash'        => hash('sha256', $validated['token']),
+            ], $request);
+
+            return response()->json([
+                'message' => 'Bu token başqa cihaza bağlıdır.',
+            ], 403);
+        }
 
         PushToken::updateOrCreate(
             ['user_id' => $user->id, 'token' => $validated['token']],
@@ -50,7 +68,7 @@ final class PushTokenController extends Controller
     public function destroy(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'token' => ['required', 'string'],
+            'token' => ['required', 'string', 'max:500'],
         ]);
 
         PushToken::where('user_id', $request->user()->id)

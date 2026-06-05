@@ -29,12 +29,14 @@ it('issues a rotating qr token with expected shape', function () {
 
     $response = $this->getJson('/api/v1/qr');
 
+    // Audit Api-5: `static_qr` field-i response-dan çıxarıldı. Mobile app
+    // bu dəyəri login/me cavabından lokal saxlamalıdır, hər rotation-da yox.
     $response->assertOk()
-        ->assertJsonStructure(['qr_value', 'expires_at', 'ttl', 'static_qr']);
+        ->assertJsonStructure(['qr_value', 'expires_at', 'ttl'])
+        ->assertJsonMissingPath('static_qr');
 
     expect($response->json('qr_value'))->toStartWith('qr1.');
     expect($response->json('ttl'))->toBe(30);
-    expect($response->json('static_qr'))->toBe('qr_abc123def456');
 });
 
 it('the issued token verifies via RotatingQrService', function () {

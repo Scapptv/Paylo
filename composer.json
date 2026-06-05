@@ -10,6 +10,9 @@
         "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.9",
+        "predis/predis": "^3.4",
+        "sentry/sentry-laravel": "^4.25",
+        "spatie/laravel-backup": "^9.3",
         "tightenco/ziggy": "^2.0"
     },
     "require-dev": {

@@ -36,7 +36,11 @@ class LedgerEntry extends Model
 {
     use HasFactory;
 
-    // Immutable: heç vaxt update etmə
+    // Audit C-13: `$timestamps = true` — Eloquent INSERT zamanı created_at/updated_at-ı
+    // avtomatik təyin etsin (factory/manuel create üçün). Lakin UPDATE qadağandır
+    // (booted()-də throw edirik), ona görə updated_at həqiqətən heç vaxt dəyişmir.
+    // Cədvəldə hər iki sütun saxlanılır ki, gələcəkdə "fixed mətalama" və hash-i
+    // pozmadan migration deltalarını izləmək mümkün olsun.
     public $timestamps = true;
 
     // `created_at` / `updated_at` qəsdən fillable-dadır: LedgerService::writeEntry
@@ -66,11 +70,14 @@ class LedgerEntry extends Model
      */
     protected static function booted(): void
     {
-        static::updating(function (self $entry): bool {
+        // Audit C-7: `: bool` qaytarış tipi yanıltıcı idi — Eloquent listener-i
+        // `false` qaytarmaqla əməliyyatı ləğv etmək olur, lakin biz exception
+        // atırıq, return-ə heç çatmırıq. `: void` mexanizmi daha dəqiq əks edir.
+        static::updating(function (self $entry): void {
             throw new \RuntimeException('Ledger entry-lər immutable-dır. Update qadağandır.');
         });
 
-        static::deleting(function (self $entry): bool {
+        static::deleting(function (self $entry): void {
             throw new \RuntimeException('Ledger entry-lər immutable-dır. Delete qadağandır.');
         });
     }
@@ -100,7 +107,18 @@ class LedgerEntry extends Model
         return $this->belongsTo(self::class, 'reverses_id');
     }
 
-    /** @return Attribute<BonusValue, never> */
+    /**
+     * Virtual accessor: domain code üçün `$entry->amount_value` formatında
+     * `BonusValue` qaytarır.
+     *
+     * Audit C-11 (design note): bu Attribute qəsdən JSON serialize-də görünmür —
+     * `protected` olduğu üçün Eloquent `getAttributes()` siyahısına düşmür və
+     * API resource-larında manual əlavə edilməlidir. Səbəb: ledger entry-nin
+     * JSON şəkli `amount` (integer qəpik) ilə formal olaraq sabitdir, müştəri
+     * formatlama (məs. "10.00 AZN") yalnız mobile/UI tərəfdə edilməlidir.
+     *
+     * @return Attribute<BonusValue, never>
+     */
     protected function amountValue(): Attribute
     {
         return Attribute::get(fn () => new BonusValue($this->amount));

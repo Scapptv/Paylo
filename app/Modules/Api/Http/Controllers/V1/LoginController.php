@@ -31,6 +31,19 @@ final class LoginController extends Controller
     }
 
     /**
+     * Audit Api-1: timing-equalisation üçün real bcrypt hash. Email DB-də
+     * tapılmadıqda bcrypt çağırılmasa, response 10-50ms-də qayıdır; tapılarsa
+     * Hash::check 100-200ms çəkir. Bu fərq email enumeration imkanı verir.
+     * Mövcud olmayan user üçün də dummy hash-ə qarşı yoxlama edirik — eyni
+     * compute-time, secret-leak yoxdur.
+     *
+     * Aşağıdakı `$2y$12$…` faktiki bcrypt cost=12 outputudur (Laravel docs
+     * nümunəsi). Heç bir real user üçün uyğun gəlmir; Hash::check qaytaracağı
+     * bool dəyəri bizə lazım deyil — yalnız müddəti tutmaq üçün çağırılır.
+     */
+    private const TIMING_DUMMY_HASH = '$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+
+    /**
      * POST /api/v1/auth/login
      */
     public function store(LoginRequest $request): JsonResponse
@@ -40,11 +53,21 @@ final class LoginController extends Controller
         /** @var User|null $user */
         $user = User::where('email', $request->string('email'))->first();
 
-        if (! $user || ! Hash::check($request->string('password')->toString(), $user->password)) {
-            RateLimiter::hit($this->throttleKey($request));
+        // Audit Api-1, Api-2: hər uğursuz hal üçün eyni mesaj, eyni timing.
+        // Üç fərqli uğursuzluq səbəbi (user yox / qeyri-customer rol / deaktiv)
+        // istifadəçi enumeration-a yol verirdi — indi yalnız audit log-da
+        // ayırd edilir; HTTP response identikdir.
+        $reason = $this->resolveLoginFailureReason($user, $request->string('password')->toString());
+
+        if ($reason !== null) {
+            // Audit Api-11: iki qatlı throttle — composite (email+IP) + email-only.
+            RateLimiter::hit($this->throttleKey($request), self::COMPOSITE_DECAY_SECONDS);
+            RateLimiter::hit($this->emailThrottleKey($request), self::EMAIL_DECAY_SECONDS);
             $this->audit->log('api.auth.login.failed', [
-                'email'  => (string) $request->input('email'),
-                'reason' => 'invalid_credentials',
+                'email'   => (string) $request->input('email'),
+                'user_id' => $user?->id,
+                'role'    => $user?->role?->value,
+                'reason'  => $reason,
             ], $request);
 
             throw ValidationException::withMessages([
@@ -52,36 +75,10 @@ final class LoginController extends Controller
             ]);
         }
 
-        // Mobile app yalnız customer rolu üçündür — kassir/admin web panel istifadə edir.
-        if ($user->role !== UserRole::Customer) {
-            RateLimiter::hit($this->throttleKey($request));
-            $this->audit->log('api.auth.login.failed', [
-                'user_id' => $user->id,
-                'email'   => $user->email,
-                'role'    => $user->role?->value,
-                'reason'  => 'role_not_allowed',
-            ], $request);
-
-            throw ValidationException::withMessages([
-                'email' => 'Bu hesabla mobil tətbiqə giriş icazəsi yoxdur.',
-            ]);
-        }
-
-        if (! $user->is_active) {
-            RateLimiter::hit($this->throttleKey($request));
-            $this->audit->log('api.auth.login.failed', [
-                'user_id' => $user->id,
-                'email'   => $user->email,
-                'reason'  => 'inactive',
-            ], $request);
-
-            throw ValidationException::withMessages([
-                'email' => 'Hesabınız deaktiv edilib. Adminə müraciət edin.',
-            ]);
-        }
-
         RateLimiter::clear($this->throttleKey($request));
+        RateLimiter::clear($this->emailThrottleKey($request));
 
+        /** @var User $user — reason null olduğu üçün burada non-null və validdir */
         $response = $this->issueToken($user, $request->string('device_name')->toString());
 
         $this->audit->log('api.auth.login', [
@@ -91,6 +88,42 @@ final class LoginController extends Controller
         ], $request);
 
         return $response;
+    }
+
+    /**
+     * Audit Api-1 + Api-2: uğursuzluq səbəbini qaytarır (audit üçün), valid login
+     * üçün `null`. Hər branch-da bcrypt çağrılır — timing eyniləşdirilib.
+     *
+     * Səbəblər:
+     *  - 'user_not_found'      — email DB-də yoxdur
+     *  - 'invalid_password'    — email var, parol uyğunsuz
+     *  - 'role_not_allowed'    — email + parol düz, lakin customer rolunda deyil
+     *  - 'inactive'            — email + parol düz, customer, lakin deaktiv
+     */
+    private function resolveLoginFailureReason(?User $user, string $password): ?string
+    {
+        if ($user === null) {
+            // Timing-equalisation: dummy bcrypt hash-ə qarşı yoxlama → real
+            // hash check ilə eyni CPU müddəti. Nəticə həmişə false, lakin
+            // attacker bunu request müddətindən anlaya bilmir.
+            Hash::check($password, self::TIMING_DUMMY_HASH);
+
+            return 'user_not_found';
+        }
+
+        if (! Hash::check($password, $user->password)) {
+            return 'invalid_password';
+        }
+
+        if ($user->role !== UserRole::Customer) {
+            return 'role_not_allowed';
+        }
+
+        if (! $user->is_active) {
+            return 'inactive';
+        }
+
+        return null;
     }
 
     /**
@@ -165,16 +198,31 @@ final class LoginController extends Controller
         ]);
     }
 
+    /**
+     * Audit Api-11: iki qatlı throttle:
+     *  1. Composite (email+IP) — adi user üçün 5 cəhd / dəq.
+     *  2. Email-only — eyni emailə qarşı bütün IP-lərdən cəm 10 cəhd / 5 dəq
+     *     (attacker IP rotation ilə composite-i ötüb spesifik hesabı bombalaya
+     *     bilməsin).
+     */
     private function ensureIsNotRateLimited(Request $request): void
     {
-        if (! RateLimiter::tooManyAttempts($this->throttleKey($request), 5)) {
-            return;
+        if (RateLimiter::tooManyAttempts($this->throttleKey($request), self::COMPOSITE_MAX_ATTEMPTS)) {
+            $this->throwRateLimited($request, $this->throttleKey($request));
         }
 
-        $seconds = RateLimiter::availableIn($this->throttleKey($request));
+        if (RateLimiter::tooManyAttempts($this->emailThrottleKey($request), self::EMAIL_MAX_ATTEMPTS)) {
+            $this->throwRateLimited($request, $this->emailThrottleKey($request));
+        }
+    }
+
+    private function throwRateLimited(Request $request, string $key): never
+    {
+        $seconds = RateLimiter::availableIn($key);
 
         $this->audit->log('api.auth.login.rate_limited', [
             'email'   => (string) $request->input('email'),
+            'key'     => $key,
             'seconds' => $seconds,
         ], $request);
 
@@ -187,4 +235,17 @@ final class LoginController extends Controller
     {
         return 'api-login:' . Str::transliterate(Str::lower((string) $request->input('email')) . '|' . $request->ip());
     }
+
+    private function emailThrottleKey(Request $request): string
+    {
+        return 'api-login-email:' . Str::transliterate(Str::lower((string) $request->input('email')));
+    }
+
+    // Composite (email+IP) layer — normal user üçün adi qoruma.
+    private const COMPOSITE_MAX_ATTEMPTS = 5;
+    private const COMPOSITE_DECAY_SECONDS = 60;
+
+    // Email-only layer — IP rotation hücumlarına qarşı, daha geniş pəncərə.
+    private const EMAIL_MAX_ATTEMPTS = 10;
+    private const EMAIL_DECAY_SECONDS = 300;
 }

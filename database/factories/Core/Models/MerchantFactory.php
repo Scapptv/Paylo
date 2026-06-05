@@ -27,7 +27,8 @@ class MerchantFactory extends Factory
             'tier'             => 'standard',
             'status'           => 'active',
             'region'           => fake()->randomElement(['Baku', 'Ganja', 'Sumqayit', 'Mingachevir']),
-            'settlement_iban'  => 'AZ' . Str::upper(Str::random(2)) . fake()->numerify('####################'),
+            // Azerbaijani IBAN: AZ + 2 check digits + 4 alphabetic bank code + 20 alphanumeric.
+            'settlement_iban'  => 'AZ' . fake()->numerify('##') . fake()->regexify('[A-Z]{4}') . fake()->numerify('####################'),
             'settlement_cycle' => 'T+3',
             'onboarded_at'     => now()->subDays(fake()->numberBetween(1, 365)),
         ];

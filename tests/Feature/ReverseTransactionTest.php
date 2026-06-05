@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Core\Enums\LedgerEntryType;
+use App\Core\Enums\TransactionStatus;
 use App\Core\Models\Bucket;
 use App\Core\Models\LedgerEntry;
 use App\Core\Models\Merchant;
@@ -57,7 +58,7 @@ it('reverses an earn-only transaction and restores the bucket to zero', function
     expect($bucket->balance)->toBe(0);
 
     $tx->refresh();
-    expect($tx->status)->toBe('reversed');
+    expect($tx->status)->toBe(TransactionStatus::Reversed);
 
     // Reversal (bonus_reversal) tipli yeni entry yarandı — ref qaytarma qəbzidir.
     $reversalCount = LedgerEntry::where('merchant_id', $this->merchant->id)
@@ -113,7 +114,7 @@ it('reverses an earn + redeem transaction fully (debit earn, credit redeem)', fu
     expect($bucket->balance)->toBe(800);
 
     $tx->refresh();
-    expect($tx->status)->toBe('reversed');
+    expect($tx->status)->toBe(TransactionStatus::Reversed);
 });
 
 it('is idempotent — second reverseTransaction throws and creates no new entries', function () {

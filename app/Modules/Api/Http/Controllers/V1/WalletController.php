@@ -25,17 +25,40 @@ final class WalletController extends Controller
      * Bonus 1 il (365 gün) ərzində aktivlik olmadıqda silinir. Mobile UI son
      * 30 gün üçün "tezliklə bitir" rozeti göstərsin deyə eşiyi 335 gün
      * əvvəlki tarix ilə hesablayırıq (365 - 30).
+     *
+     * MVP qeydi: faktiki silmə ExpireBucketsCommand tamamlananda işə düşəcək —
+     * indi yalnız UI üzərində "tezliklə bitir" rozeti üçün məbləğ hesablanır.
      */
     private const EXPIRING_SOON_THRESHOLD_DAYS = 335;
+
+    /** Audit Usr-1 / Api-9: bucket sayı çox olan müştərilər üçün ilk səhifə limiti. */
+    private const BUCKETS_PER_PAGE = 30;
 
     public function show(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        $buckets = $user->buckets()
+        // Aggregate-lər BÜTÜN bucket-lər üzərində hesablanır — pagination
+        // wallet-in cəm dəyərini təhrif etməsin.
+        $aggregates = $user->buckets()
+            ->selectRaw('COUNT(*) AS bucket_count,
+                         COALESCE(SUM(balance), 0)        AS total_balance,
+                         COALESCE(SUM(earned_total), 0)   AS total_earned,
+                         COALESCE(SUM(redeemed_total), 0) AS total_redeemed')
+            ->first();
+
+        $expiringThreshold = Carbon::now()->subDays(self::EXPIRING_SOON_THRESHOLD_DAYS);
+        $expiringSoon = (int) $user->buckets()
+            ->whereNotNull('last_activity_at')
+            ->where('last_activity_at', '<', $expiringThreshold)
+            ->sum('balance');
+
+        // Audit Usr-1 / Api-9: ilk N bucket cursor-paginated. Mobile `next_cursor`
+        // ilə "Daha çox göstər" düyməsi üçün davam edə bilər.
+        $bucketsPage = $user->buckets()
             ->with('merchant:id,code,name,category,tier')
             ->orderByDesc('balance')
-            ->get();
+            ->cursorPaginate(self::BUCKETS_PER_PAGE);
 
         $recentEntries = LedgerEntry::with('merchant:id,code,name,category')
             ->where('user_id', $user->id)
@@ -43,19 +66,15 @@ final class WalletController extends Controller
             ->limit(10)
             ->get();
 
-        $expiringThreshold = Carbon::now()->subDays(self::EXPIRING_SOON_THRESHOLD_DAYS);
-        $expiringSoon = (int) $buckets
-            ->filter(fn ($bucket) => $bucket->last_activity_at !== null
-                && $bucket->last_activity_at->lt($expiringThreshold))
-            ->sum('balance');
-
         return response()->json([
-            'total_balance'           => (int) $buckets->sum('balance'),
-            'total_earned_all_time'   => (int) $buckets->sum('earned_total'),
-            'total_redeemed_all_time' => (int) $buckets->sum('redeemed_total'),
+            'total_balance'           => (int) $aggregates->total_balance,
+            'total_earned_all_time'   => (int) $aggregates->total_earned,
+            'total_redeemed_all_time' => (int) $aggregates->total_redeemed,
             'expiring_soon'           => $expiringSoon,
-            'buckets_count'           => $buckets->count(),
-            'buckets'                 => BucketResource::collection($buckets)->toArray($request),
+            'buckets_count'           => (int) $aggregates->bucket_count,
+            'buckets'                 => BucketResource::collection($bucketsPage->items())->toArray($request),
+            'buckets_next_cursor'     => $bucketsPage->nextCursor()?->encode(),
+            'buckets_has_more'        => $bucketsPage->nextCursor() !== null,
             'recent_entries'          => LedgerEntryResource::collection($recentEntries)->toArray($request),
             'currency'                => 'AZN',
         ]);

@@ -23,10 +23,23 @@ class EnsureRole
             return redirect()->route('login');
         }
 
-        $allowed = array_map(
-            fn (string $r) => UserRole::from($r),
-            $roles,
-        );
+        // Audit H-1: route definition-dakı naməlum rol enum-a uyğun gəlmirsə
+        // `UserRole::from()` `\ValueError` atırdı — stack-trace dev üçün qaranlıq
+        // idi. `tryFrom + LogicException` dərhal route konfiqurasiya problemini
+        // adı ilə birgə görsədir; production-da bu fail-fast davranışdır
+        // (silent 403 yox).
+        $allowed = [];
+        foreach ($roles as $r) {
+            $role = UserRole::tryFrom($r);
+            if ($role === null) {
+                throw new \LogicException(sprintf(
+                    "EnsureRole middleware-i naməlum rol aldı: '%s'. Etibarlı rollar: %s.",
+                    $r,
+                    implode(', ', UserRole::values()),
+                ));
+            }
+            $allowed[] = $role;
+        }
 
         if (! in_array($user->role, $allowed, strict: true)) {
             abort(403, 'Bu səhifəyə daxil olmaq üçün icazəniz yoxdur.');

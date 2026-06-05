@@ -130,7 +130,7 @@ it('returns history for an owned bucket', function () {
     expect($response->json('data'))->toHaveCount(2);
 });
 
-it('returns 403 when accessing another user\'s bucket history', function () {
+it('returns 404 when accessing another user\'s bucket history (audit Api-7: no enumeration)', function () {
     $other       = User::factory()->create(['role' => UserRole::Customer]);
     $otherBucket = Bucket::create([
         'user_id' => $other->id, 'merchant_id' => $this->merchant->id, 'balance' => 0,
@@ -138,5 +138,9 @@ it('returns 403 when accessing another user\'s bucket history', function () {
 
     Sanctum::actingAs($this->user, ['customer']);
 
-    $this->getJson("/api/v1/buckets/{$otherBucket->id}/history")->assertStatus(403);
+    // 404 — "yoxdur" və "səninki deyil" hücumçu üçün ayırd edilməyəcək.
+    $this->getJson("/api/v1/buckets/{$otherBucket->id}/history")->assertStatus(404);
+
+    // Mövcud olmayan ID də eyni 404 qaytarır → response-lar identikdir.
+    $this->getJson('/api/v1/buckets/999999/history')->assertStatus(404);
 });

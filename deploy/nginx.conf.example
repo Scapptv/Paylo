@@ -1,0 +1,103 @@
+# Paylo — Nginx sayt konfiqurasiyası şablonu
+# /etc/nginx/sites-available/paylo
+#
+# Bu fayl şablondur. Production-da:
+#   - `server_name`-i öz domeninizlə əvəz edin
+#   - SSL sertifikatlarını Let's Encrypt (certbot) ilə alın
+#   - PHP-FPM socket yolunu uyğunlaşdırın (PHP versiyasına görə)
+#   - `root` yolunu /var/www/paylo/public-ə yönəldin
+
+# ----------------------------------------------------------------------------
+# HTTP → HTTPS redirect (Let's Encrypt /well-known istisna)
+# ----------------------------------------------------------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name app.paylo.az admin.paylo.az;
+
+    # Let's Encrypt HTTP-01 challenge üçün açıq
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
+}
+
+# ----------------------------------------------------------------------------
+# HTTPS — production trafiki
+# ----------------------------------------------------------------------------
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name app.paylo.az admin.paylo.az;
+
+    root /var/www/paylo/public;
+    index index.php;
+
+    # SSL — certbot yolları (sertifikat avtomatik yeniləmə üçün)
+    ssl_certificate     /etc/letsencrypt/live/app.paylo.az/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.paylo.az/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Təhlükəsizlik header-ləri
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # CSP-i öz Vite asset URL-lərinizə uyğun ayarlayın — boş başlamamaq tövsiyə olunur.
+    # add_header Content-Security-Policy "default-src 'self'; ..." always;
+
+    charset utf-8;
+    client_max_body_size 20M;
+
+    # Maintenance mode səhifəsi (artisan down)
+    error_page 503 /errors/503.html;
+
+    # Laravel default front controller
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # PHP-FPM (versiyanı sistemə uyğun dəyişin: php8.2-fpm, php8.3-fpm və s.)
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+
+        # Real client IP-ni Laravel-ə bildir (TrustedProxies konfiqurasiyası onu işləyir)
+        fastcgi_param HTTP_X_FORWARDED_PROTO $scheme;
+        fastcgi_param HTTP_X_FORWARDED_FOR $proxy_add_x_forwarded_for;
+
+        fastcgi_buffers 16 16k;
+        fastcgi_buffer_size 32k;
+        fastcgi_read_timeout 120;
+    }
+
+    # Asset caching — Vite-build edilmiş statik fayllar
+    location ~* \.(css|js|woff2?|ttf|otf|svg|png|jpg|jpeg|gif|ico|webp)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    # Gizli fayllara çıxış qadağan
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    # Açıq qoyulmamalı kataloqlar (defense-in-depth — root onsuz da public-dir)
+    location ~ ^/(storage|vendor|node_modules|tests)/ {
+        deny all;
+    }
+
+    access_log /var/log/nginx/paylo-access.log;
+    error_log  /var/log/nginx/paylo-error.log warn;
+}

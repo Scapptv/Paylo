@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
@@ -120,5 +121,37 @@ class User extends Authenticatable
         } while (static::query()->where('customer_qr', $candidate)->exists());
 
         return $candidate;
+    }
+
+    /**
+     * Audit C-5: pre-check `generateUniqueCustomerQr` race-i tam aradan qaldırmır —
+     * `exists()` yoxlanışı ilə `INSERT` arasında paralel sorğu eyni QR-i yaza bilər.
+     * Saving event içində qoruna bilmir (event INSERT-dən qabaq fire olur), ona görə
+     * `save()`-i wrap edirik: UniqueConstraintViolationException-da customer_qr-i
+     * sıfırlayıb saving event-in yeni QR generasiya etməsi üçün 3 dəfəyə qədər
+     * təkrar cəhd edirik.
+     */
+    public function save(array $options = []): bool
+    {
+        $maxAttempts = 3;
+
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return parent::save($options);
+            } catch (UniqueConstraintViolationException $e) {
+                $isActiveCustomer = $this->role === UserRole::Customer
+                    && (bool) ($this->is_active ?? true);
+
+                // Yalnız: aktiv customer + QR sahə dəyəri var + maksimum cəhdə
+                // çatmamışıq → retry. Digər unique constraint-lər (məs. email)
+                // burada gizlədilməməlidir.
+                if (! $isActiveCustomer || $this->customer_qr === null || $attempt >= $maxAttempts) {
+                    throw $e;
+                }
+
+                // QR-i null-a çək — saving event yenidən fire olunduqda generasiya edəcək.
+                $this->customer_qr = null;
+            }
+        }
     }
 }

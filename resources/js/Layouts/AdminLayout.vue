@@ -17,28 +17,34 @@ defineProps({
                 <BrandMark role="Admin" />
 
                 <nav class="flex-1 py-4">
+                    <!--
+                        Audit FE-3: MVP-də implement olunmamış admin element-ləri
+                        disabled + badge="Tezliklə" işarələnir. Bu sayədə demo
+                        görünüş itmir, lakin istifadəçi click-ə basanda heç bir
+                        404 və ya `#` axını yaranmır.
+                    -->
                     <div class="px-6 pb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Overview</div>
                     <NavItem :href="route('admin.dashboard')" icon="▣">Dashboard</NavItem>
-                    <NavItem href="#" icon="◉">Analytics</NavItem>
+                    <NavItem icon="◉" badge="Tezliklə" disabled>Analytics</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Loyalty Core</div>
                     <NavItem :href="route('admin.ledger')" icon="⊟" badge="12.4k">Ledger</NavItem>
-                    <NavItem href="#" icon="◫">Per-merchant Buckets</NavItem>
-                    <NavItem href="#" icon="⟳">Redemptions</NavItem>
-                    <NavItem href="#" icon="↺">Refunds</NavItem>
+                    <NavItem icon="◫" badge="Tezliklə" disabled>Per-merchant Buckets</NavItem>
+                    <NavItem icon="⟳" badge="Tezliklə" disabled>Redemptions</NavItem>
+                    <NavItem icon="↺" badge="Tezliklə" disabled>Refunds</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Configuration</div>
-                    <NavItem href="#" icon="⚙">Rules</NavItem>
-                    <NavItem href="#" icon="⊞" badge="v3">Category Tiers</NavItem>
-                    <NavItem href="#" icon="★" badge="API">Campaigns</NavItem>
-                    <NavItem :href="route('admin.merchants')" icon="◐" badge="API">Merchants</NavItem>
-                    <NavItem href="#" icon="◌">Users</NavItem>
+                    <NavItem icon="⚙" badge="Tezliklə" disabled>Rules</NavItem>
+                    <NavItem icon="⊞" badge="Tezliklə" disabled>Category Tiers</NavItem>
+                    <NavItem icon="★" badge="Tezliklə" disabled>Campaigns</NavItem>
+                    <NavItem :href="route('admin.merchants')" icon="◐">Merchants</NavItem>
+                    <NavItem icon="◌" badge="Tezliklə" disabled>Users</NavItem>
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Compliance</div>
-                    <NavItem href="#" icon="⚠" badge="7">Fraud Signals</NavItem>
-                    <NavItem href="#" icon="⊕">Audit Logs</NavItem>
-                    <NavItem href="#" icon="◇">Settlements</NavItem>
-                    <NavItem href="#" icon="⎈">Manual Adj.</NavItem>
+                    <NavItem icon="⚠" badge="Tezliklə" disabled>Fraud Signals</NavItem>
+                    <NavItem icon="⊕" badge="Tezliklə" disabled>Audit Logs</NavItem>
+                    <NavItem icon="◇" badge="Tezliklə" disabled>Settlements</NavItem>
+                    <NavItem icon="⎈" badge="Tezliklə" disabled>Manual Adj.</NavItem>
                 </nav>
 
                 <div class="px-6 py-5 border-t border-border font-mono text-[10px] uppercase tracking-widest text-muted">

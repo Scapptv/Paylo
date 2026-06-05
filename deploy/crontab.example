@@ -1,0 +1,11 @@
+# Paylo — production cron qeydi (Laravel scheduler)
+#
+# Quraşdırma:
+#   sudo -u www-data crontab -e
+#   (yapışdır aşağıdakı sətri)
+#
+# Bu bir sətir Laravel-in bütün scheduled command-larını (settlement reconcile,
+# backup, expire-buckets) idarə edir — `routes/console.php`-də qeydiyyatdan
+# keçən hər `Schedule::command(...)` çağırışı.
+
+* * * * * cd /var/www/paylo && php artisan schedule:run >> /dev/null 2>&1

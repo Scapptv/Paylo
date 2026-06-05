@@ -60,6 +60,12 @@ return [
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
+            // spatie/laravel-backup mysqldump çağırışı — InnoDB üçün
+            // useSingleTransaction backup zamanı write lock-suz consistent snapshot
+            // alır. Ledger immutability səbəbindən InnoDB tələb olunur.
+            'dump' => [
+                'useSingleTransaction' => true,
+            ],
         ],
 
         'mariadb' => [

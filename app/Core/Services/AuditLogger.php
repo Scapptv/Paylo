@@ -31,7 +31,12 @@ final class AuditLogger
             $payload['user_agent'] = (string) $request->userAgent();
         }
 
-        $channel = config('logging.channels.audit') ? 'audit' : config('logging.default');
+        // Audit C-10: `config('logging.channels.audit')` array qaytarır və
+        // truthy check həm boş array, həm misconfigured value-larda işləyir.
+        // `has()` açıq şəkildə açar mövcudluğunu yoxlayır — niyyət aydındır.
+        $channel = config()->has('logging.channels.audit')
+            ? 'audit'
+            : config('logging.default');
 
         Log::channel($channel)->info('audit.' . $event, $payload);
     }
