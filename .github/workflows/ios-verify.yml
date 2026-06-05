@@ -1,0 +1,61 @@
+name: iOS verify (MOB-1 blur)
+
+# Audit 2026-06-04 MOB-1: macOS runner-da Swift-i (AppDelegate + SecureWindowGuard)
+# kompilyasiya edib XCTest-i qaçırır — Windows host-da edilə bilməyən doğrulama.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ios-verify.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+  workflow_dispatch:
+
+jobs:
+  ios-verify:
+    name: Build iOS + Dart & XCTest
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # Pre-existing info/warning-lər block etməsin; yalnız ƏSL error fail etsin.
+      - name: Flutter analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Dart tests (unit + integration + widget)
+        run: flutter test
+
+      # MOB-1 əsas yoxlaması: AppDelegate.swift + SecureWindowGuard.swift kompilyasiya olunur.
+      - name: Build iOS (no codesign)
+        run: flutter build ios --no-codesign
+
+      # XCTest — yalnız RunnerTests target Xcode-da əlavə edilibsə işləyir
+      # (qurma təlimatı: ios/MOB1_BLUR_VERIFICATION.md).
+      - name: iOS unit tests (SecureWindowGuard)
+        working-directory: mobile/ios
+        run: |
+          if xcodebuild -list -workspace Runner.xcworkspace 2>/dev/null | grep -q "RunnerTests"; then
+            xcodebuild test \
+              -workspace Runner.xcworkspace \
+              -scheme Runner \
+              -destination 'platform=iOS Simulator,name=iPhone 15' \
+              -only-testing:RunnerTests \
+              CODE_SIGNING_ALLOWED=NO
+          else
+            echo "::warning::RunnerTests target Xcode-da hələ əlavə edilməyib — XCTest skip. Bax: ios/MOB1_BLUR_VERIFICATION.md"
+          fi
