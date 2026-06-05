@@ -1,6 +1,7 @@
 ﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:paylo/core/api/api_client.dart';
+import 'package:paylo/core/errors/api_exception.dart';
 import 'package:paylo/features/wallet/domain/wallet_models.dart';
 
 class HistoryPage {
@@ -26,17 +27,30 @@ class HistoryRepository {
       if (merchantId != null) 'merchant_id': merchantId,
       'limit': 20,
     },);
-    final data = res.data!;
+    return parse(res.data);
+  }
 
-    final entries = (data['data'] as List)
-        .map((e) => _ledgerFromJson(e as Map<String, dynamic>))
-        .toList();
+  /// Audit 2026-06-04 MOB-4: qorunmuş + test-edilə bilən parse. Səhv formatlı
+  /// cavab TypeError yox, `ServerException` atır. Boş `data` list isə etibarlı
+  /// (boş tarixçə) sayılır.
+  static HistoryPage parse(Map<String, dynamic>? data) {
+    try {
+      final list = (data?['data'] as List?) ?? const [];
+      final entries = list
+          .whereType<Map<String, dynamic>>()
+          .map(_ledgerFromJson)
+          .toList();
 
-    return HistoryPage(
-      entries: entries,
-      nextCursor: data['next_cursor'] as String?,
-      hasMore: data['has_more'] as bool? ?? false,
-    );
+      return HistoryPage(
+        entries: entries,
+        nextCursor: data?['next_cursor'] as String?,
+        hasMore: data?['has_more'] as bool? ?? false,
+      );
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw const ServerException('Tarixçə oxuna bilmədi (gözlənilməz format).');
+    }
   }
 
   static LedgerEntry _ledgerFromJson(Map<String, dynamic> json) => LedgerEntry(

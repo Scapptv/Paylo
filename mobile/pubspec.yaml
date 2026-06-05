@@ -35,6 +35,11 @@ dependencies:
   qr_flutter: ^4.1.0
   barcode_widget: ^2.0.4
 
+  # Barkod ekranı: parlaqlıq boost (POS skanerinin oxuması üçün) + ekran sönməsin
+  # NOTE: wakelock_plus 1.1.4 (1.2.x package_info_plus ^5 ilə uyğunsuzdur — newer `web` paket tələb edir)
+  screen_brightness: ^1.0.1
+  wakelock_plus: ^1.1.4
+
   # Push notifications
   firebase_core: ^2.24.2
   firebase_messaging: ^14.7.10

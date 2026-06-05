@@ -1,6 +1,7 @@
 ﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:paylo/core/api/api_client.dart';
+import 'package:paylo/core/errors/api_exception.dart';
 
 class QrPayload {
   const QrPayload({
@@ -29,13 +30,31 @@ class QrRepository {
 
   Future<QrPayload> generate() async {
     final res = await _api.get<Map<String, dynamic>>('/qr');
-    final data = res.data!;
+    return parse(res.data);
+  }
+
+  /// Audit 2026-06-04 MOB-4: qorunmuş + test-edilə bilən parse. `qr_value` /
+  /// `expires_at` əskik və ya səhv tipli olsa TypeError yox, `ServerException`
+  /// atır — `QrController` `on ApiException` tutub error state göstərsin
+  /// (sonsuz loading-də ilişməsin).
+  static QrPayload parse(Map<String, dynamic>? data) {
+    final qrValue    = data?['qr_value'];
+    final expiresRaw = data?['expires_at'];
+
+    if (qrValue is! String || qrValue.isEmpty || expiresRaw is! String) {
+      throw const ServerException('QR cavabı gözlənilməz formatdadır.');
+    }
+
+    final expiresAt = DateTime.tryParse(expiresRaw);
+    if (expiresAt == null) {
+      throw const ServerException('QR cavabı gözlənilməz formatdadır.');
+    }
 
     return QrPayload(
-      qrValue:   data['qr_value'] as String,
-      expiresAt: DateTime.parse(data['expires_at'] as String),
-      ttl:       data['ttl'] as int? ?? 30,
-      staticQr:  data['static_qr'] as String?,
+      qrValue:   qrValue,
+      expiresAt: expiresAt,
+      ttl:       (data?['ttl'] as num?)?.toInt() ?? 30,
+      staticQr:  data?['static_qr'] as String?,
     );
   }
 }

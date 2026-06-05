@@ -1,0 +1,18 @@
+# Sprint 9 M-3: Android release signing.
+#
+# Bu faylı `key.properties`-ə kopyalayıb dəyərləri doldur. Sonra
+# `android/key.properties` `.gitignore`-da olmalıdır — REAL parol commit etmə.
+#
+# Keystore yaratma əmri (bir dəfə icra olunur, fayl saxlanır):
+#   keytool -genkey -v -keystore android/app/upload-keystore.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# Build:
+#   flutter build appbundle --release
+#
+# Çıxış: build/app/outputs/bundle/release/app-release.aab → Play Store-a yüklə.
+
+storePassword=CHANGE_ME_KEYSTORE_PASSWORD
+keyPassword=CHANGE_ME_KEY_PASSWORD
+keyAlias=upload
+storeFile=upload-keystore.jks

@@ -26,8 +26,19 @@ class AppConfig {
 
   static const Duration networkTimeout = Duration(seconds: 20);
 
-  /// QR rotation interval (backend ilə uyğun olmalıdır)
-  static const Duration qrRotationInterval = Duration(seconds: 25);
+  /// QR rotation interval — backend TTL 30s.
+  /// Sprint 9 M-6: əvvəl 25s idi — server-də expire olan token kassirə çatırdı.
+  /// İndi server `expires_at`-dan dinamik hesablanır; bu sabit yalnız fallback-dır
+  /// (payload yoxsa və ya expires_at parse olmasa).
+  static const Duration qrRotationInterval = Duration(seconds: 30);
+
+  /// Yeni QR token istəməzdən əvvəl `expires_at`-dan çıxılan buffer.
+  /// Şəbəkə latensiyası üçün marja — kassir tam expire olmuş token görməsin.
+  static const Duration qrRefreshBuffer = Duration(seconds: 3);
+
+  /// Minimum interval — server təsadüfən kiçik TTL qaytarsa belə polling
+  /// flood etməyək.
+  static const Duration qrMinRefreshInterval = Duration(seconds: 5);
 
   /// Secure storage key-ləri
   static const String storageKeyToken = 'auth_token';

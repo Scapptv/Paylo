@@ -1,8 +1,32 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Sprint 9 M-3: Release signing konfiqurasiyası.
+//
+// `android/key.properties` faylı `.gitignore`-dadır və komand:
+//   keytool -genkey -v -keystore android/app/upload-keystore.jks \
+//     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+//
+// `android/key.properties` məzmunu:
+//   storePassword=<KEYSTORE_PASS>
+//   keyPassword=<KEY_PASS>
+//   keyAlias=upload
+//   storeFile=upload-keystore.jks   (app/ qovluğuna nisbi)
+//
+// Production build: `flutter build appbundle --release` → AAB Play Store-a yüklənir.
+// Fayl tapılmadıqda debug key-ə fallback edilir ki, `flutter run --release` dev-də işləsin.
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -31,11 +55,34 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String?
+                keyPassword = keystoreProperties["keyPassword"] as String?
+                storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+                storePassword = keystoreProperties["storePassword"] as String?
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Sprint 9 M-3: production build üçün release keystore; əgər
+            // `android/key.properties` yoxdursa, debug key fallback olur.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+
+            // Code shrinking + obfuscation — production üçün vacibdir.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

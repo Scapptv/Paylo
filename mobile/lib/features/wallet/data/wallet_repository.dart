@@ -1,6 +1,7 @@
 ﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:paylo/core/api/api_client.dart';
+import 'package:paylo/core/errors/api_exception.dart';
 import 'package:paylo/features/wallet/domain/wallet_models.dart';
 
 class _MerchantDto {
@@ -47,23 +48,42 @@ class WalletRepository {
 
   Future<WalletSummary> getWallet() async {
     final res = await _api.get<Map<String, dynamic>>('/wallet');
-    final data = res.data!;
-
-    return WalletSummary(
-      totalBalance:         data['total_balance'] as int,
-      totalEarnedAllTime:   data['total_earned_all_time'] as int,
-      totalRedeemedAllTime: data['total_redeemed_all_time'] as int,
-      expiringSoon:         data['expiring_soon'] as int,
-      bucketsCount:         data['buckets_count'] as int,
-      currency:             (data['currency'] as String?) ?? 'AZN',
-      buckets: (data['buckets'] as List)
-          .map((e) => _BucketDto.fromJson(e as Map<String, dynamic>))
-          .toList(),
-      recentEntries: (data['recent_entries'] as List)
-          .map((e) => _LedgerEntryDto.fromJson(e as Map<String, dynamic>))
-          .toList(),
-    );
+    return parse(res.data);
   }
+
+  /// Audit 2026-06-04 MOB-4: qorunmuş + test-edilə bilən parse. Səhv/əskik sahə
+  /// TypeError yox, tipli `ServerException` atır (UI daimi error state göstərir,
+  /// crash yox). Boş və ya `total_balance`-siz body etibarsız sayılır — server
+  /// xətasını "0 AZN" kimi yanıldıcı balansla gizlətməmək üçün açıq xəta veririk.
+  static WalletSummary parse(Map<String, dynamic>? data) {
+    if (data == null || data['total_balance'] == null) {
+      throw const ServerException('Wallet məlumatı oxuna bilmədi (gözlənilməz format).');
+    }
+    try {
+      return WalletSummary(
+        totalBalance:         _int(data['total_balance']),
+        totalEarnedAllTime:   _int(data['total_earned_all_time']),
+        totalRedeemedAllTime: _int(data['total_redeemed_all_time']),
+        expiringSoon:         _int(data['expiring_soon']),
+        bucketsCount:         _int(data['buckets_count']),
+        currency:             (data['currency'] as String?) ?? 'AZN',
+        buckets: ((data['buckets'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(_BucketDto.fromJson)
+            .toList(),
+        recentEntries: ((data['recent_entries'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(_LedgerEntryDto.fromJson)
+            .toList(),
+      );
+    } on ApiException {
+      rethrow;
+    } catch (_) {
+      throw const ServerException('Wallet məlumatı oxuna bilmədi (gözlənilməz format).');
+    }
+  }
+
+  static int _int(dynamic v) => (v as num?)?.toInt() ?? 0;
 }
 
 final walletRepositoryProvider = Provider<WalletRepository>((ref) {

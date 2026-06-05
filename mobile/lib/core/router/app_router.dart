@@ -19,35 +19,10 @@ class AppRouter {
     return GoRouter(
       initialLocation: '/splash',
       refreshListenable: _AuthStateListenable(ref),
-      redirect: (context, state) {
-        final auth = ref.read(authControllerProvider);
-        final location = state.matchedLocation;
-
-        // Bootstrap zamanı splash-da qal
-        if (auth is AuthInitial || auth is AuthLoading) {
-          return location == '/splash' ? null : '/splash';
-        }
-
-        final isAuthenticated = auth is AuthAuthenticated;
-        final isAuthRoute = location == '/login' || location == '/register';
-
-        // Splash-dan çıxış: rola görə yönləndir
-        if (location == '/splash') {
-          return isAuthenticated ? '/wallet' : '/login';
-        }
-
-        // Authenticated user auth ekranındadırsa, wallet-ə qaytar
-        if (isAuthenticated && isAuthRoute) {
-          return '/wallet';
-        }
-
-        // Unauthenticated user qorunan ekrana girirsə, login-ə qaytar
-        if (!isAuthenticated && !isAuthRoute) {
-          return '/login';
-        }
-
-        return null;
-      },
+      // Audit 2026-06-04: gating məntiqi `redirectLogic`-ə çıxarıldı ki, pure
+      // integration test edilə bilsin (xüsusən MOB-5: auth flip → login).
+      redirect: (context, state) =>
+          redirectLogic(ref.read(authControllerProvider), state.matchedLocation),
       routes: [
         GoRoute(path: '/splash',   builder: (_, __) => const SplashScreen()),
         GoRoute(path: '/login',    builder: (_, __) => const LoginScreen()),
@@ -55,9 +30,38 @@ class AppRouter {
         GoRoute(path: '/wallet',   builder: (_, __) => const MainShell(initialIndex: 0)),
         GoRoute(path: '/history',  builder: (_, __) => const MainShell(initialIndex: 1)),
         GoRoute(path: '/qr',       builder: (_, __) => const MainShell(initialIndex: 2)),
-        GoRoute(path: '/profile',  builder: (_, __) => const MainShell(initialIndex: 3)),
+        // Audit 2026-06-04 MOB-7: main_shell.dart-da index 3 = Cart, 4 = Profile.
+        // Əvvəllər /profile səhvən index 3 (Cart) açırdı (off-by-one).
+        GoRoute(path: '/cart',     builder: (_, __) => const MainShell(initialIndex: 3)),
+        GoRoute(path: '/profile',  builder: (_, __) => const MainShell(initialIndex: 4)),
       ],
     );
+  }
+
+  /// Auth state + cari location-a görə yönləndirmə qərarı (pure, test-edilə bilən).
+  /// `null` = yönləndirmə yoxdur, cari location-da qal.
+  ///
+  ///   - AuthInitial / AuthLoading → splash (bootstrap davam edir)
+  ///   - Unauthenticated → /login (qorunan ekrandadırsa)
+  ///   - Authenticated → /wallet (splash və ya login/register-dədirsə)
+  static String? redirectLogic(AuthState auth, String location) {
+    if (auth is AuthInitial || auth is AuthLoading) {
+      return location == '/splash' ? null : '/splash';
+    }
+
+    final isAuthenticated = auth is AuthAuthenticated;
+    final isAuthRoute = location == '/login' || location == '/register';
+
+    if (location == '/splash') {
+      return isAuthenticated ? '/wallet' : '/login';
+    }
+    if (isAuthenticated && isAuthRoute) {
+      return '/wallet';
+    }
+    if (!isAuthenticated && !isAuthRoute) {
+      return '/login';
+    }
+    return null;
   }
 }
 

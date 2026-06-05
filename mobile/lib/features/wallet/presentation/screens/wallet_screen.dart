@@ -10,6 +10,7 @@ import 'package:paylo/features/wallet/presentation/widgets/bucket_tile.dart';
 import 'package:paylo/features/wallet/presentation/widgets/ledger_entry_tile.dart';
 import 'package:paylo/shared/widgets/animated_count.dart';
 import 'package:paylo/shared/widgets/glow.dart';
+import 'package:paylo/shared/widgets/secure_screen.dart';
 
 class WalletScreen extends ConsumerWidget {
   const WalletScreen({super.key});
@@ -18,7 +19,9 @@ class WalletScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final walletAsync = ref.watch(walletProvider);
 
-    return Scaffold(
+    // Audit 2026-06-04 MOB-2: wallet həssas data (balans/bucket/ledger) —
+    // screenshot/recording bağlanır (QR ekranı ilə eyni qoruma).
+    return SecureScreen(child: Scaffold(
       body: Stack(
         children: [
           const Positioned.fill(
@@ -82,7 +85,7 @@ class WalletScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
+    ),);
   }
 
   void _openDetailsSheet(BuildContext context, WalletSummary wallet) {

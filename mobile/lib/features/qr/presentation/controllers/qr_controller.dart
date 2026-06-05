@@ -37,20 +37,38 @@ class QrController extends AutoDisposeNotifier<QrState> {
 
     Future.microtask(() async {
       await _fetch();
-      _startTimer();
+      _scheduleNext();
     });
 
     return const QrState();
   }
 
-  void _startTimer() {
+  /// Sprint 9 M-6: timer-i payload-un `expiresAt`-ından dinamik hesablayır.
+  /// Şəbəkə latensiyası üçün `qrRefreshBuffer` (3s) ayrılır — server-də expire
+  /// olmuş token kassirə çatmasın. Payload yoxsa fallback `qrRotationInterval` (30s).
+  void _scheduleNext() {
     _timer?.cancel();
-    _timer = Timer.periodic(AppConfig.qrRotationInterval, (_) => _fetch());
+
+    final p = state.payload;
+    Duration delay;
+    if (p == null) {
+      delay = AppConfig.qrRotationInterval;
+    } else {
+      final remaining = p.expiresAt.difference(DateTime.now()) - AppConfig.qrRefreshBuffer;
+      delay = remaining < AppConfig.qrMinRefreshInterval
+          ? AppConfig.qrMinRefreshInterval
+          : remaining;
+    }
+
+    _timer = Timer(delay, () async {
+      await _fetch();
+      _scheduleNext();
+    });
   }
 
   Future<void> refresh() async {
     await _fetch();
-    _startTimer();
+    _scheduleNext();
   }
 
   Future<void> _fetch() async {

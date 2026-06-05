@@ -32,6 +32,7 @@ class HistoryState {
     String? cursor,
     String? filterType,
     bool clearError = false,
+    bool clearFilter = false,
   }) =>
       HistoryState(
         entries:     entries ?? this.entries,
@@ -40,7 +41,11 @@ class HistoryState {
         error:       clearError ? null : (error ?? this.error),
         hasMore:     hasMore ?? this.hasMore,
         cursor:      cursor ?? this.cursor,
-        filterType:  filterType ?? this.filterType,
+        // Audit 2026-06-04 MOB-6: `filterType: null` ötürmək filtri təmizləməlidir.
+        // `?? this.filterType` null-ı köhnə dəyərlə əvəz edirdi, ona görə "Hamısı"
+        // çipi aktiv filtri heç vaxt sıfırlaya bilmirdi (loadMore köhnə filtri
+        // tətbiq edirdi, çip yanlış aktiv görünürdü).
+        filterType:  clearFilter ? null : (filterType ?? this.filterType),
       );
 }
 
@@ -61,6 +66,7 @@ class HistoryController extends AutoDisposeNotifier<HistoryState> {
       cursor: null,
       hasMore: true,
       filterType: type,
+      clearFilter: type == null, // "Hamısı" seçimi filtri tam təmizləsin (MOB-6)
       clearError: true,
     );
 

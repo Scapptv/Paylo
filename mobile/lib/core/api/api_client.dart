@@ -1,4 +1,4 @@
-﻿import 'package:dio/dio.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
@@ -6,6 +6,7 @@ import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 import 'package:paylo/core/config/app_config.dart';
 import 'package:paylo/core/errors/api_exception.dart';
 import 'package:paylo/core/storage/secure_token_storage.dart';
+import 'package:paylo/features/auth/presentation/controllers/auth_controller.dart';
 
 /// Bütün API çağırışları üçün vahid client.
 ///
@@ -13,6 +14,7 @@ import 'package:paylo/core/storage/secure_token_storage.dart';
 ///   - AuthInterceptor: storage-dan token götürüb Bearer header əlavə edir
 ///   - ErrorInterceptor: DioException → tipli ApiException
 ///   - 401 dinləyicisi: token-i silir və app-i login ekranına qaytarır
+///   - Sprint 9 M-7: RateLimitInterceptor — `X-RateLimit-*` header-lərini state-ə yansıdır
 class ApiClient {
   ApiClient({
     required this.dio,
@@ -27,6 +29,7 @@ class ApiClient {
   static ApiClient create({
     required SecureTokenStorage storage,
     required void Function() onUnauthorized,
+    void Function(RateLimitInfo info)? onRateLimitUpdate,
   }) {
     final headers = <String, dynamic>{
       'Accept': 'application/json',
@@ -49,6 +52,10 @@ class ApiClient {
 
     dio.interceptors.add(_AuthInterceptor(storage));
     dio.interceptors.add(_ErrorInterceptor(onUnauthorized: onUnauthorized));
+    // Sprint 9 M-7: hər API cavabında `X-RateLimit-*` header-lərini parse et.
+    if (onRateLimitUpdate != null) {
+      dio.interceptors.add(_RateLimitInterceptor(onUpdate: onRateLimitUpdate));
+    }
 
     if (kDebugMode) {
       dio.interceptors.add(PrettyDioLogger(
@@ -144,6 +151,49 @@ class _ErrorInterceptor extends Interceptor {
   }
 }
 
+/// Sprint 9 M-7: `X-RateLimit-Limit/Remaining/Reset` header-lərini parse edib
+/// caller-ə təqdim edir.
+class _RateLimitInterceptor extends Interceptor {
+  _RateLimitInterceptor({required this.onUpdate});
+  final void Function(RateLimitInfo info) onUpdate;
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    final info = _parse(response);
+    if (info != null) onUpdate(info);
+    handler.next(response);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    final response = err.response;
+    if (response != null) {
+      final info = _parse(response);
+      if (info != null) onUpdate(info);
+    }
+    handler.next(err);
+  }
+
+  RateLimitInfo? _parse(Response response) {
+    final headers = response.headers;
+    final limitRaw     = headers.value('x-ratelimit-limit');
+    final remainingRaw = headers.value('x-ratelimit-remaining');
+    final resetRaw     = headers.value('x-ratelimit-reset');
+
+    if (limitRaw == null || remainingRaw == null) return null;
+    final limit     = int.tryParse(limitRaw);
+    final remaining = int.tryParse(remainingRaw);
+    if (limit == null || remaining == null) return null;
+
+    return RateLimitInfo(
+      limit:          limit,
+      remaining:      remaining,
+      resetInSeconds: resetRaw != null ? int.tryParse(resetRaw) : null,
+      observedAt:     DateTime.now(),
+    );
+  }
+}
+
 ApiException _mapDioError(DioException e) {
   final response = e.response;
   final status = response?.statusCode ?? 0;
@@ -179,7 +229,9 @@ ApiException _mapDioError(DioException e) {
       final errors = _extractValidationErrors(data);
       return ValidationException(message, errors);
     case 429:
-      return RateLimitException(message);
+      // Sprint 9 M-7: `Retry-After` header dəyəri exception-a daxil edilir.
+      final retryAfter = int.tryParse(response?.headers.value('retry-after') ?? '');
+      return RateLimitException(message, retryAfter);
     case >= 500:
       return ServerException(message);
     default:
@@ -209,15 +261,24 @@ Map<String, List<String>> _extractValidationErrors(dynamic data) {
   return result;
 }
 
-// --- Riverpod provider ---
+// --- Riverpod provider-lər ---
+
+/// Sprint 9 M-7: ən son `RateLimitInfo`. UI proaktiv backoff göstərə bilər.
+final rateLimitInfoProvider = StateProvider<RateLimitInfo?>((_) => null);
 
 final apiClientProvider = Provider<ApiClient>((ref) {
   final storage = ref.watch(secureStorageProvider);
   return ApiClient.create(
     storage: storage,
     onUnauthorized: () {
-      // 401 alındıqda token-i sil → auth state yenilənəcək
-      storage.clear();
+      // Audit 2026-06-04 MOB-5: 401-də yalnız storage təmizləmək kifayət deyildi —
+      // auth state dəyişmirdi, UI authenticated qalıb hər sorğuda 401 alırdı. İndi
+      // AuthController-i xəbərdar edirik: storage təmizlənir VƏ state
+      // Unauthenticated-ə keçir → router login ekranına yönləndirir.
+      ref.read(authControllerProvider.notifier).handleUnauthorized();
+    },
+    onRateLimitUpdate: (info) {
+      ref.read(rateLimitInfoProvider.notifier).state = info;
     },
   );
 });

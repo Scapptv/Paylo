@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:paylo/core/api/api_client.dart';
+import 'package:paylo/core/errors/api_exception.dart';
 import 'package:paylo/core/storage/secure_token_storage.dart';
 import 'package:paylo/features/auth/data/user_dto.dart';
 import 'package:paylo/features/auth/domain/auth_session.dart';
@@ -23,7 +24,7 @@ class AuthRepository {
       'device_name': deviceName,
     },);
 
-    return _handleAuthResponse(res.data!);
+    return _handleAuthResponse(res.data);
   }
 
   Future<AuthSession> register({
@@ -43,7 +44,7 @@ class AuthRepository {
       'device_name': deviceName,
     },);
 
-    return _handleAuthResponse(res.data!);
+    return _handleAuthResponse(res.data);
   }
 
   Future<void> logout() async {
@@ -66,15 +67,45 @@ class AuthRepository {
 
   // --- Helpers ---
 
-  Future<AuthSession> _handleAuthResponse(Map<String, dynamic> data) async {
-    final token     = data['token'] as String;
-    final expiresAt = DateTime.parse(data['expires_at'] as String);
-    final user      = UserDto.fromJson(data['user'] as Map<String, dynamic>);
+  /// Audit 2026-06-04 MOB-3: qorunmuş + test-edilə bilən parse (storage-suz, pure).
+  /// Boş və ya səhv formatlı 2xx body (`validateStatus` 500-dən aşağı hər şeyi
+  /// qəbul edir) əvvəllər TypeError atırdı — bu `ApiException` deyil, ona görə
+  /// controller-in `on ApiException` bloku tutmurdu və login sonsuz `AuthLoading`-də
+  /// ilişirdi. İndi tipli `ServerException` atırıq ki, controller onu AuthError-a
+  /// çevirsin.
+  static AuthSession parseSession(Map<String, dynamic>? data) {
+    final token      = data?['token'];
+    final expiresRaw = data?['expires_at'];
+    final userJson   = data?['user'];
 
-    await _storage.writeToken(token);
-    await _storage.writeExpiresAt(expiresAt);
+    if (token is! String || token.isEmpty ||
+        expiresRaw is! String ||
+        userJson is! Map<String, dynamic>) {
+      throw const ServerException('Server cavabı gözlənilməz formatdadır.');
+    }
 
-    return AuthSession(token: token, expiresAt: expiresAt, user: user);
+    final expiresAt = DateTime.tryParse(expiresRaw);
+    if (expiresAt == null) {
+      throw const ServerException('Server cavabı gözlənilməz formatdadır.');
+    }
+
+    try {
+      return AuthSession(token: token, expiresAt: expiresAt, user: UserDto.fromJson(userJson));
+    } on ServerException {
+      rethrow;
+    } catch (_) {
+      // UserDto sahələri səhv tipdə olsa (məs. id String) TypeError-i tipli
+      // ServerException-a çevir.
+      throw const ServerException('Server cavabı gözlənilməz formatdadır.');
+    }
+  }
+
+  Future<AuthSession> _handleAuthResponse(Map<String, dynamic>? data) async {
+    final session = parseSession(data);
+    await _storage.writeToken(session.token);
+    await _storage.writeExpiresAt(session.expiresAt);
+
+    return session;
   }
 
   Future<String> _deviceName() async {

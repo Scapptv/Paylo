@@ -11,6 +11,7 @@ import 'package:paylo/features/profile/presentation/screens/change_password_scre
 import 'package:paylo/features/profile/presentation/screens/edit_profile_screen.dart';
 import 'package:paylo/features/profile/presentation/screens/delete_account_screen.dart';
 import 'package:paylo/shared/widgets/glow.dart';
+import 'package:paylo/shared/widgets/secure_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -19,14 +20,16 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(profileProvider);
 
-    return Scaffold(
+    // Audit 2026-06-04 MOB-2: profil "Müştəri ID"/barkod həssas data —
+    // screenshot/recording bağlanır.
+    return SecureScreen(child: Scaffold(
       appBar: AppBar(title: const Text('Profil')),
       body: profileAsync.when(
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
         error: (e, _) => Center(child: Text(e.toString(), style: AppTextStyles.body(13, color: AppColors.danger))),
         data: (user) => _ProfileContent(user: user),
       ),
-    );
+    ),);
   }
 }
 
