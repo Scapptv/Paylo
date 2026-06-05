@@ -58,8 +58,11 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
   tam `type` filtrinə malik idi. Ona görə yalnız **preset nav linkləri** əlavə edildi
   (Redemptions→`?type=redeem`, Refunds→`?type=refund`) + URL-əsaslı `:active` highlight +
   dinamik breadcrumb. Yeni səhifə/controller yox. **2 filter testi PASS** (filtri kilidləyir).
-- [ ] **2.4 Settlements** — `loyalty:settlement-reconcile` command-i üçün HTTP wrapper:
-  read-only hesabat səhifəsi (son reconcile nəticəsi, mismatch siyahısı) + "indi işlət" düyməsi.
+- [x] **2.4 Settlements** ✅ — reconcile məntiqi `SettlementReconciler` servisinə çıxarıldı
+  (CLI cron + HTTP eyni mənbə, drift dublikatı yox); command ona delegasiya edir (9 köhnə test
+  hələ PASS). `SettlementController` + `Admin/Settlements.vue`: scope/merchant filtri, status badge,
+  mismatch cədvəli (bucket/user/merchant/sahə/faktiki/gözlənilən/delta), "İndi işlət (qeydə al)"
+  düyməsi (audit). index() read-only (audit yox), run() audit yazır. Nav aktiv. **7 yeni test PASS.**
 
 ### Phase 3 — Audit/compliance (store tələb edir)
 - [ ] **3.1 Audit Logs** — `AuditLogger` hazırda fayl/channel-a yazır. UI üçün DB-backed
@@ -94,6 +97,7 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | 2.1 | Per-merchant Buckets | ✅ DONE | 4 test PASS, read-view, nav aktiv |
 | 2.2 | Users | ✅ DONE | 9 test PASS, toggle + filterlər, self-guard, nav aktiv |
 | 2.3 | Redemptions/Refunds | ✅ DONE | 2 test PASS, preset nav linkləri (mövcud filtr) |
-| 2.4 | Settlements | ⏳ növbəti | |
-| 3.1 | Audit Logs | ⏳ | store lazım |
+| 2.4 | Settlements | ✅ DONE | 7 test PASS, servis refactor, "İndi işlət" + audit |
+| — | **Phase 2 TAM BİTDİ** | ✅ | Buckets + Users + Redemptions/Refunds + Settlements |
+| 3.1 | Audit Logs | ⏳ növbəti | DB-backed store lazım |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

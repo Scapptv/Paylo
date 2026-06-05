@@ -59,7 +59,8 @@ const ledgerType = computed(() => {
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Compliance</div>
                     <NavItem icon="⚠" badge="Tezliklə" disabled>Fraud Signals</NavItem>
                     <NavItem icon="⊕" badge="Tezliklə" disabled>Audit Logs</NavItem>
-                    <NavItem icon="◇" badge="Tezliklə" disabled>Settlements</NavItem>
+                    <!-- Roadmap Phase 2.4: Settlement reconciliation read-view + "İndi işlət". -->
+                    <NavItem :href="route('admin.settlements')" icon="◇">Settlements</NavItem>
                     <!-- Roadmap Phase 1.1: Manual Adj. aktivləşdirildi (CANON-4 backend + UI). -->
                     <NavItem :href="route('admin.bonus-adjustments.create')" icon="⎈">Manual Adj.</NavItem>
                 </nav>
