@@ -47,8 +47,9 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
   Phase 1.1 flash `status`→`success` düzəldildi (HandleInertiaRequests `flash.success`). **5 yeni test PASS.**
 
 ### Phase 2 — Mövcud data üzərində read/manage view-lar (orta)
-- [ ] **2.1 Per-merchant Buckets** — read-only siyahı: user × merchant, balance/earned/redeemed/expired,
-  filter (merchant/user). Yeni controller + Vue. PII maskalama (staff vs admin — onsuz da admin).
+- [x] **2.1 Per-merchant Buckets** ✅ — `BucketController` + `Admin/Buckets.vue` (cədvəl: user×merchant
+  balance/earned/redeemed/expired/last_activity, merchant+user filter, pagination, cəm bloklanmış balans).
+  Read-only. Nav aktiv. **4 test PASS.** (Admin tam görünüş — maskalama lazım deyil.)
 - [ ] **2.2 Users** — admin user idarəetməsi: bütün user-lər (rol, is_active, merchant), filter,
   deaktivləşdirmə (anonimləşdirmə deyil — sadə is_active toggle). Privilege qaydaları.
 - [ ] **2.3 Redemptions + Refunds** — `Ledger`-də type-filter (earn/redeem/refund/reversal/expire).
@@ -87,6 +88,9 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 |---|---|---|---|
 | 1.1 | Manual Adj. UI | ✅ DONE | 13 test PASS, build edildi, nav aktiv |
 | 1.2 | Transactions UI | ✅ DONE | 5 test PASS, reverse modal, nav aktiv |
-| 2.x | Buckets/Users/Redemptions/Settlements | ⏳ | |
+| 2.1 | Per-merchant Buckets | ✅ DONE | 4 test PASS, read-view, nav aktiv |
+| 2.2 | Users | ⏳ növbəti | |
+| 2.3 | Redemptions/Refunds | ⏳ | |
+| 2.4 | Settlements | ⏳ | |
 | 3.1 | Audit Logs | ⏳ | store lazım |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

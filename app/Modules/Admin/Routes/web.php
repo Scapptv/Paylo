@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Admin\Http\Controllers\BonusAdjustmentController;
+use App\Modules\Admin\Http\Controllers\BucketController;
 use App\Modules\Admin\Http\Controllers\DashboardController;
 use App\Modules\Admin\Http\Controllers\LedgerController;
 use App\Modules\Admin\Http\Controllers\MerchantController;
@@ -17,6 +18,9 @@ Route::middleware(['auth', 'role:admin'])
 
         Route::get('/ledger',          [LedgerController::class, 'index'])->name('ledger');
         Route::get('/ledger/{entry}',  [LedgerController::class, 'show'])->name('ledger.show');
+
+        // Roadmap Phase 2.1: per-merchant bucket read-view (balans + counter-lər).
+        Route::get('/buckets', [BucketController::class, 'index'])->name('buckets');
 
         // Merchant CRUD (Sprint 7.2) — order matters: `create` statik route
         // `show` model-bound-undan əvvəl qoyulur.
