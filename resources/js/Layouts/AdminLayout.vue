@@ -44,7 +44,8 @@ defineProps({
                     <NavItem icon="⚠" badge="Tezliklə" disabled>Fraud Signals</NavItem>
                     <NavItem icon="⊕" badge="Tezliklə" disabled>Audit Logs</NavItem>
                     <NavItem icon="◇" badge="Tezliklə" disabled>Settlements</NavItem>
-                    <NavItem icon="⎈" badge="Tezliklə" disabled>Manual Adj.</NavItem>
+                    <!-- Roadmap Phase 1.1: Manual Adj. aktivləşdirildi (CANON-4 backend + UI). -->
+                    <NavItem :href="route('admin.bonus-adjustments.create')" icon="⎈">Manual Adj.</NavItem>
                 </nav>
 
                 <div class="px-6 py-5 border-t border-border font-mono text-[10px] uppercase tracking-widest text-muted">

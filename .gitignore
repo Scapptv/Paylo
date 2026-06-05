@@ -47,3 +47,4 @@ yarn-error.log
 /storage/logs/*.log
 /storage/debugbar
 /storage/clockwork
+.gstack/

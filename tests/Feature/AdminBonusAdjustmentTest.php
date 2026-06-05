@@ -10,6 +10,7 @@ use App\Core\Models\Merchant;
 use App\Core\Models\User;
 use App\Core\Services\LedgerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 
 uses(RefreshDatabase::class);
 
@@ -134,4 +135,53 @@ it('blocks unauthenticated requests', function () {
         'customer_id' => $this->customer->id, 'merchant_id' => $this->merchant->id,
         'amount_cents' => 100, 'reason' => 'test reason',
     ])->assertStatus(401);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Roadmap Phase 1.1 — admin UI (Inertia) səthi: create forması + email ilə kredit.
+| API (customer_id/JSON) kontraktı yuxarıdakı testlərlə qorunur.
+|--------------------------------------------------------------------------
+*/
+
+it('Phase 1.1: renders the manual adjustment form to admin with merchants', function () {
+    Merchant::factory()->create(['status' => 'active']); // dropdown üçün əlavə merchant
+
+    $this->actingAs($this->admin)
+        ->get('/admin/bonus-adjustments')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Admin/BonusAdjustment')
+            ->has('merchants')
+        );
+});
+
+it('Phase 1.1: credits via email from the web form and redirects (not JSON)', function () {
+    $response = $this->actingAs($this->admin)->post('/admin/bonus-adjustments', [
+        'email'        => $this->customer->email,
+        'merchant_id'  => $this->merchant->id,
+        'amount_cents' => 300,
+        'reason'       => 'goodwill via UI',
+    ]);
+
+    $response->assertRedirect(); // Inertia/web → redirect, JSON deyil
+
+    $bucket = Bucket::where('user_id', $this->customer->id)
+        ->where('merchant_id', $this->merchant->id)->first();
+    expect((int) $bucket->balance)->toBe(300);
+    expect(LedgerEntry::where('type', LedgerEntryType::Adjustment)
+        ->where('user_id', $this->customer->id)->count())->toBe(1);
+});
+
+it('Phase 1.1: rejects an unknown / non-customer email', function () {
+    $this->actingAs($this->admin)->postJson('/admin/bonus-adjustments', [
+        'email' => 'yoxdur@nowhere.az', 'merchant_id' => $this->merchant->id,
+        'amount_cents' => 100, 'reason' => 'bad email',
+    ])->assertStatus(422)->assertJsonValidationErrors(['email']);
+});
+
+it('Phase 1.1: rejects when neither customer_id nor email is provided', function () {
+    $this->actingAs($this->admin)->postJson('/admin/bonus-adjustments', [
+        'merchant_id' => $this->merchant->id, 'amount_cents' => 100, 'reason' => 'no target',
+    ])->assertStatus(422)->assertJsonValidationErrors(['customer_id', 'email']);
 });

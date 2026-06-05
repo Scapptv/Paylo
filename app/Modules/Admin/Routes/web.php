@@ -32,9 +32,9 @@ Route::middleware(['auth', 'role:admin'])
         Route::post('/transactions/{transaction}/reverse', [TransactionController::class, 'reverse'])
             ->name('transactions.reverse');
 
-        // Manual bonus düzəlişi (Audit 2026-06-04 CANON-4) — CREDIT-only, məcburi
-        // `reason` (audit). Çatışmayan reverse-dən sonra redeem-i geri qaytarmaq
-        // və ya goodwill kredit üçün bərpa yolu.
-        Route::post('/bonus-adjustments', [BonusAdjustmentController::class, 'store'])
-            ->name('bonus-adjustments.store');
+        // Manual bonus düzəlişi (Audit 2026-06-04 CANON-4 + roadmap Phase 1.1) —
+        // CREDIT-only, məcburi `reason` (audit). create() admin UI forması,
+        // store() həm Inertia (email), həm API (customer_id) qəbul edir.
+        Route::get('/bonus-adjustments',  [BonusAdjustmentController::class, 'create'])->name('bonus-adjustments.create');
+        Route::post('/bonus-adjustments', [BonusAdjustmentController::class, 'store'])->name('bonus-adjustments.store');
     });

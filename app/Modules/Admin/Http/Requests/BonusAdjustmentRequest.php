@@ -23,12 +23,22 @@ class BonusAdjustmentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Yalnız AKTİV Customer — deaktiv/anonimləşdirilmiş hesaba kredit yox
-            // (WEB-2 invariantı ilə eyni qayda).
+            // Müştəri ya `customer_id` (API/JSON), ya da `email` (admin UI) ilə verilir —
+            // biri məcburidir. Hər ikisi yalnız AKTİV Customer-ə icazə verir
+            // (deaktiv/anonimləşdirilmiş hesaba kredit yox — WEB-2 invariantı).
             'customer_id' => [
-                'required',
+                'required_without:email',
+                'nullable',
                 'integer',
                 Rule::exists('users', 'id')->where(fn ($q) => $q
+                    ->where('role', UserRole::Customer->value)
+                    ->where('is_active', true)),
+            ],
+            'email' => [
+                'required_without:customer_id',
+                'nullable',
+                'email',
+                Rule::exists('users', 'email')->where(fn ($q) => $q
                     ->where('role', UserRole::Customer->value)
                     ->where('is_active', true)),
             ],
