@@ -87,9 +87,10 @@ class BonusAdjustmentController extends Controller
             'reason'      => $reason,
         ], $request);
 
-        // Inertia (web form) → redirect + flash status; API (JSON) → 201 (kontrakt sabit).
+        // Inertia (web form) → redirect + flash (HandleInertiaRequests `flash.success`
+        // paylaşır); API (JSON) → 201 (kontrakt sabit).
         if (! $request->expectsJson()) {
-            return back()->with('status', sprintf(
+            return back()->with('success', sprintf(
                 '%d qəpik kredit edildi — %s @ %s · yeni balans: %d qəpik.',
                 $amount->amount,
                 $customer->name,

@@ -42,9 +42,9 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 - [x] **1.1 Manual Adj.** ✅ — `Admin/BonusAdjustment.vue` (email ilə müştəri + merchant
   dropdown + AZN→qəpik + səbəb), GET `create` route, store() Inertia/JSON branch
   (email→customer resolve), nav aktivləşdirildi. **13 test PASS.** `npm run build` edildi.
-- [ ] **1.2 Transactions** — `Admin/Transactions.vue`: satış siyahısı (filter: status/merchant/receipt,
-  paginate) + reverse düyməsi (return_receipt_no + reason → mövcud `admin.transactions.reverse`).
-  Nav-a əlavə et. Feature test (siyahı + reverse).
+- [x] **1.2 Transactions** ✅ — `Admin/Transactions.vue` (cədvəl + status/receipt filter +
+  pagination + reverse modal), nav-a əlavə edildi, `reverse()` Inertia/JSON branch (redirect+flash).
+  Phase 1.1 flash `status`→`success` düzəldildi (HandleInertiaRequests `flash.success`). **5 yeni test PASS.**
 
 ### Phase 2 — Mövcud data üzərində read/manage view-lar (orta)
 - [ ] **2.1 Per-merchant Buckets** — read-only siyahı: user × merchant, balance/earned/redeemed/expired,
@@ -86,7 +86,7 @@ Campaigns · Users · Fraud Signals · Audit Logs · Settlements · Manual Adj.
 | Faza | Element | Status | Qeyd |
 |---|---|---|---|
 | 1.1 | Manual Adj. UI | ✅ DONE | 13 test PASS, build edildi, nav aktiv |
-| 1.2 | Transactions UI | ⏳ növbəti | backend hazır |
+| 1.2 | Transactions UI | ✅ DONE | 5 test PASS, reverse modal, nav aktiv |
 | 2.x | Buckets/Users/Redemptions/Settlements | ⏳ | |
 | 3.1 | Audit Logs | ⏳ | store lazım |
 | 4.x | Analytics/Rules/Tiers/Campaigns/Fraud | ⏳ | ayrıca spec |

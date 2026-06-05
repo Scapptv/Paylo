@@ -58,10 +58,10 @@ function submit() {
         </div>
 
         <!-- Uğur bildirişi (flash status varsa onu, yoxsa generic) -->
-        <div v-if="justCredited || page.props.flash?.status"
+        <div v-if="justCredited || page.props.flash?.success"
              class="card max-w-3xl mb-6 border-l-2 border-l-success flex items-center gap-3">
             <span class="text-success text-lg">✓</span>
-            <span class="text-sm text-text">{{ page.props.flash?.status || 'Bonus krediti uğurla edildi.' }}</span>
+            <span class="text-sm text-text">{{ page.props.flash?.success || 'Bonus krediti uğurla edildi.' }}</span>
         </div>
 
         <form @submit.prevent="submit" class="card max-w-3xl space-y-6">

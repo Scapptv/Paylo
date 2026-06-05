@@ -29,6 +29,8 @@ defineProps({
 
                     <div class="px-6 pb-2 pt-5 font-mono text-[10px] uppercase tracking-widest text-muted">Loyalty Core</div>
                     <NavItem :href="route('admin.ledger')" icon="⊟" badge="12.4k">Ledger</NavItem>
+                    <!-- Roadmap Phase 1.2: Transactions aktivləşdirildi (siyahı + reverse). -->
+                    <NavItem :href="route('admin.transactions')" icon="⇆">Transactions</NavItem>
                     <NavItem icon="◫" badge="Tezliklə" disabled>Per-merchant Buckets</NavItem>
                     <NavItem icon="⟳" badge="Tezliklə" disabled>Redemptions</NavItem>
                     <NavItem icon="↺" badge="Tezliklə" disabled>Refunds</NavItem>

@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 /**
  * Admin transaction idarəetmə paneli.
@@ -65,7 +66,7 @@ class TransactionController extends Controller
      *  - Bütün dəyişiklik ReverseFlowService → LedgerService::reverseTransaction
      *    içində atomic-dir; burada əlavə DB transaction açılmır.
      */
-    public function reverse(ReverseTransactionRequest $request, Transaction $transaction): JsonResponse
+    public function reverse(ReverseTransactionRequest $request, Transaction $transaction): HttpResponse
     {
         $result = $this->reverseFlow->execute(
             tx:              $transaction,
@@ -74,6 +75,18 @@ class TransactionController extends Controller
             reason:          (string) $request->input('reason'),
             logChannel:      'admin.transaction.reverse',
         );
+
+        // Web (Inertia) → redirect + flash (admin paneli); API/JSON → mövcud JSON
+        // kontrakt (AdminReverseTransactionTest postJson ilə yoxlayır).
+        if (! $request->expectsJson()) {
+            if ($result['http_status'] === 200) {
+                return back()->with('success', ($result['already_reversed'] ?? false)
+                    ? 'Bu tranzaksiya artıq reverse olunmuşdu: ' . $transaction->receipt_no
+                    : 'Tranzaksiya reverse edildi: ' . $transaction->receipt_no);
+            }
+
+            return back()->with('error', $result['message'] ?? 'Reverse mümkün olmadı.');
+        }
 
         return response()->json(
             collect($result)->except('http_status')->all(),
